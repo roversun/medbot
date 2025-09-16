@@ -1,0 +1,3 @@
+set(__QT_DEPLOY_TARGET_applatcheck_FILE D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/applatcheck.exe)
+set(__QT_DEPLOY_TARGET_applatcheck_TYPE EXECUTABLE)
+set(__QT_DEPLOY_TARGET_applatcheck_RUNTIME_DLLS D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Quick.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Positioning.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6QmlMeta.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6QmlWorkerScript.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6QmlModels.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Qml.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Network.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6OpenGL.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Gui.dll;D:/Qt/6.9.1/llvm-mingw_64/bin/Qt6Core.dll)

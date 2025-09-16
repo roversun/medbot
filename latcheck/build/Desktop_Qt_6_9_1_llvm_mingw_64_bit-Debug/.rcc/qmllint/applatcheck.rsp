@@ -1,0 +1,11 @@
+--bare
+-I
+D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug
+-I
+D:/Qt/6.9.1/llvm-mingw_64/qml
+--resource
+D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/.qt/rcc/qmake_latcheck.qrc
+--resource
+D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/.qt/rcc/applatcheck_raw_qml_0.qrc
+D:/dev/qt_projects/latcheck/Main.qml
+D:/dev/qt_projects/latcheck/ConfigDialog.qml
