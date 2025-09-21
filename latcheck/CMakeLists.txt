@@ -28,7 +28,6 @@ qt_add_qml_module(applatcheck
     VERSION 1.0
     QML_FILES
         Main.qml
-        ConfigDialog.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -46,9 +45,9 @@ target_link_libraries(applatcheck
     PRIVATE Qt6::Quick Qt6::Network Qt6::Positioning
 )
 
-# Windows specific libraries for ICMP
+# Windows specific libraries for ICMP and crypto
 if(WIN32)
-    target_link_libraries(applatcheck PRIVATE ws2_32 iphlpapi)
+    target_link_libraries(applatcheck PRIVATE crypt32 advapi32 iphlpapi)
 endif()
 
 include(GNUInstallDirs)

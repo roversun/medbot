@@ -34,7 +34,7 @@ public:
 
 signals:
     void locationEnabledChanged();
-    void currentLocationChanged();
+    void currentLocationChanged(const QString &location);  // 添加参数
     void isUpdatingChanged();
     void locationUpdateFailed(const QString &error);
 

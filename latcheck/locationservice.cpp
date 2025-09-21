@@ -197,7 +197,7 @@ void LocationService::setCurrentLocation(const QString &location)
 {
     if (m_currentLocation != location) {
         m_currentLocation = location;
-        emit currentLocationChanged();
+        emit currentLocationChanged(location);  // 传递location参数
     }
 }
 

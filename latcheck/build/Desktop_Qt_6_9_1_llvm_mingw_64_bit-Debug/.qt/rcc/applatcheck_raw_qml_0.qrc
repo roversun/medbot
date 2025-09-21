@@ -1,7 +1,0 @@
-<RCC>
-  <qresource prefix="/qt/qml/latcheck/">
-    <file alias="Main.qml">D:/dev/qt_projects/latcheck/Main.qml</file>
-    <file alias="ConfigDialog.qml">D:/dev/qt_projects/latcheck/ConfigDialog.qml</file>
-  </qresource>
-</RCC>
-

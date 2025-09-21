@@ -2,10 +2,25 @@
 #define CONFIGMANAGER_H
 
 #include <QObject>
-#include <QSettings>
 #include <QString>
+#include <QJsonObject>
+#include <QJsonDocument>
 #include <QCryptographicHash>
 #include <QRandomGenerator>
+#include <QDir>
+#include <QCoreApplication>
+#include <QFile>
+#include <QTextStream>
+#include <QSslKey>
+#include <QSslCertificate>
+#include <QNetworkInterface>
+#include <QSettings>
+#include <QCryptographicHash>
+#include <QBuffer>
+#include <windows.h>
+#include <wincrypt.h>
+#include <QByteArray>
+#include <QString>
 
 class ConfigManager : public QObject
 {
@@ -18,38 +33,38 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoLocation READ autoLocation WRITE setAutoLocation NOTIFY autoLocationChanged)
     Q_PROPERTY(QString clientCertPath READ clientCertPath WRITE setClientCertPath NOTIFY clientCertPathChanged)
     Q_PROPERTY(QString clientKeyPath READ clientKeyPath WRITE setClientKeyPath NOTIFY clientKeyPathChanged)
+    Q_PROPERTY(bool ignoreSslErrors READ ignoreSslErrors WRITE setIgnoreSslErrors NOTIFY ignoreSslErrorsChanged)
 
 public:
     explicit ConfigManager(QObject *parent = nullptr);
 
+    // Getters
     QString serverIp() const;
-    void setServerIp(const QString &ip);
-
     int serverPort() const;
-    void setServerPort(int port);
-
     int threadCount() const;
-    void setThreadCount(int count);
-
     QString username() const;
-    void setUsername(const QString &username);
-
     QString location() const;
-    void setLocation(const QString &location);
-
     bool autoLocation() const;
-    void setAutoLocation(bool enabled);
-
     QString clientCertPath() const;
-    void setClientCertPath(const QString &path);
-
     QString clientKeyPath() const;
+    bool ignoreSslErrors() const;
+
+    // Setters
+    void setServerIp(const QString &ip);
+    void setServerPort(int port);
+    void setThreadCount(int count);
+    void setUsername(const QString &username);
+    void setLocation(const QString &location);
+    void setAutoLocation(bool enabled);
+    void setClientCertPath(const QString &path);
     void setClientKeyPath(const QString &path);
+    void setIgnoreSslErrors(bool ignore);
 
     Q_INVOKABLE bool setPassword(const QString &password);
     Q_INVOKABLE bool verifyPassword(const QString &password);
-    Q_INVOKABLE void saveConfig();
-    Q_INVOKABLE void loadConfig();
+
+    Q_INVOKABLE bool saveConfig();
+    void loadConfig();
 
 signals:
     void serverIpChanged();
@@ -60,22 +75,42 @@ signals:
     void autoLocationChanged();
     void clientCertPathChanged();
     void clientKeyPathChanged();
+    void ignoreSslErrorsChanged();
 
 private:
-    QSettings *m_settings;
+    QString m_configFilePath;
+    QString getConfigFilePath() const;
+    QString getConfigDirPath() const;
+    bool ensureConfigDirExists() const;
+    
+    QJsonObject toJsonObject() const;
+    void fromJsonObject(const QJsonObject &json);
+    
+    QString generateSalt();
+    QString hashPassword(const QString &password, const QString &salt);
+    
+    // RSA加密相关方法
+    QByteArray generateIVFromMachineID();
+    QByteArray encryptWithCryptoAPI(const QByteArray &data, const QByteArray &key);
+    QByteArray decryptWithCryptoAPI(const QByteArray &encryptedData, const QByteArray &key);
+
+    QString encryptPassword(const QString &password);
+    QString decryptPassword(const QString &encryptedPassword);
+    QSslKey getPrivateKey() const;  // 已存在
+    QSslKey getPublicKey() const;   // 如果需要
+    QSslCertificate getCertificate() const;  // 添加这个缺失的声明
+    QString getMachineFingerprint();  // 机器指纹方法
     QString m_serverIp;
     int m_serverPort;
     int m_threadCount;
     QString m_username;
+    QString m_passwordHash;
+    QString m_salt;
     QString m_location;
     bool m_autoLocation;
     QString m_clientCertPath;
     QString m_clientKeyPath;
-    QString m_passwordHash;
-    QString m_salt;
-
-    QString generateSalt();
-    QString hashPassword(const QString &password, const QString &salt);
+    bool m_ignoreSslErrors;
 };
 
 #endif // CONFIGMANAGER_H

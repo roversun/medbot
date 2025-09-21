@@ -2,320 +2,463 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.VirtualKeyboard
-import LatCheck 1.0
+import LatCheck 2.0
 
 ApplicationWindow {
     id: window
-    width: 800
-    height: 600
+    width: 1000
+    height: 700
     visible: true
-    title: "LatCheck v1.0 - Network Latency Checker"
+    title: "LatCheck - Network Latency Checker"
     
+    // 添加一个属性来存储日志区域的引用
+    property var logTextAreaRef: null
+    
+    // 删除这行错误的alias定义
+    // property alias mainLogArea: logTextArea
+    
+    property string testConnectionStatus: ""
+    property bool testConnectionSuccess: false
+    property string saveConfigStatus: ""
+    property bool saveConfigSuccess: false
+    
+    // 统一状态显示属性
+    property string statusMessage: ""
+    property bool statusSuccess: false
+
+    // 统一状态清除定时器
+    Timer {
+        id: statusTimer
+        interval: 3000
+        onTriggered: {
+            statusMessage = ""
+            testConnectionStatus = ""
+            saveConfigStatus = ""
+        }
+    }
     property bool isRunning: latencyChecker.running
-    property bool showConfig: false  // 控制配置界面显示
+    property bool isLoggedIn: false
+    // 删除这四行重复的属性定义：
+    // property string testConnectionStatus: ""
+    // property bool testConnectionSuccess: false
+    // property string saveConfigStatus: ""
+    // property bool saveConfigSuccess: false
     
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
             
             Label {
-                text: "LatCheck v1.0"
+                text: "LatCheck v2.0"
                 font.bold: true
                 Layout.fillWidth: true
             }
             
             ToolButton {
-                text: showConfig ? "❌" : "⚙️"
+                text: stackView.depth === 1 ? "⚙️" : "🏠"
                 font.pixelSize: 20
-                onClicked: showConfig = !showConfig
+                onClicked: {
+                    if (stackView.depth === 1) {
+                        stackView.push(configPage)
+                    } else {
+                        stackView.pop()
+                    }
+                }
             }
         }
     }
+    // Remove this invalid line:
+    // property alias logArea: mainPage.logArea  // Remove this line
     
-    ColumnLayout {
+    StackView {
+        id: stackView
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 15
+        initialItem: mainPage
         
-        // 内嵌配置界面
-        GroupBox {
-            title: "Configuration"
-            Layout.fillWidth: true
-            visible: showConfig
+        // 主界面页面
+        Component {
+            id: mainPage
             
-            ScrollView {
-                anchors.fill: parent
-                implicitHeight: showConfig ? 400 : 0
+            ColumnLayout {
+                property alias logArea: logTextArea  // Keep this alias in ColumnLayout
+                width: parent.width
+                height: parent.height
+                anchors.margins: 20
+                spacing: 15
                 
-                ColumnLayout {
-                    width: parent.width
-                    spacing: 15
-                    
-                    GroupBox {
-                        title: "Server Configuration"
-                        Layout.fillWidth: true
-                        
-                        GridLayout {
-                            columns: 2
-                            anchors.fill: parent
-                            
-                            Label { text: "Server IP:" }
-                            TextField {
-                                id: serverIpField
-                                Layout.fillWidth: true
-                                placeholderText: "127.0.0.1"
-                                text: configManager.serverIp
-                            }
-                            
-                            Label { text: "Server Port:" }
-                            SpinBox {
-                                id: serverPortField
-                                from: 1
-                                to: 65535
-                                value: configManager.serverPort
-                            }
-                        }
-                    }
-                    
-                    GroupBox {
-                        title: "Threading Configuration"
-                        Layout.fillWidth: true
-                        
-                        GridLayout {
-                            columns: 2
-                            anchors.fill: parent
-                            
-                            Label { text: "Thread Count:" }
-                            SpinBox {
-                                id: threadCountField
-                                from: 1
-                                to: 200
-                                value: configManager.threadCount
-                            }
-                        }
-                    }
-                    
-                    GroupBox {
-                        title: "Authentication"
-                        Layout.fillWidth: true
-                        
-                        GridLayout {
-                            columns: 2
-                            anchors.fill: parent
-                            
-                            Label { text: "Username:" }
-                            TextField {
-                                id: usernameField
-                                Layout.fillWidth: true
-                                text: configManager.username
-                            }
-                            
-                            Label { text: "Password:" }
-                            TextField {
-                                id: passwordField
-                                Layout.fillWidth: true
-                                echoMode: TextInput.Password
-                                placeholderText: "Enter password"
-                            }
-                        }
-                    }
+                // Location Input
+                GroupBox {
+                    title: "Location Information"
+                    Layout.fillWidth: true
                     
                     RowLayout {
-                        Layout.fillWidth: true
+                        anchors.fill: parent
                         
-                        Button {
-                            text: "Test Connection"
-                            enabled: serverIpField.text.length > 0
-                            onClicked: {
-                                networkManager.connectToServer(
-                                    serverIpField.text, 
-                                    serverPortField.value,
-                                    "", // cert path - simplified for inline config
-                                    ""  // key path - simplified for inline config
-                                )
+                        TextField {
+                            id: locationField
+                            Layout.fillWidth: true
+                            placeholderText: "Enter your location"
+                            text: configManager.location
+                            onTextChanged: configManager.location = text
+                        }
+                        
+                        CheckBox {
+                            id: autoLocationCheck
+                            text: "Auto Location"
+                            enabled: true
+                            onCheckedChanged: {
+                                if (checked) {
+                                    logger.logMessage("Starting automatic location detection...")
+                                    locationService.startLocationUpdate()
+                                    
+                                    if (locationService.currentLocation !== "Unknown" && locationService.currentLocation !== "") {
+                                        locationField.text = locationService.currentLocation
+                                        configManager.location = locationService.currentLocation
+                                        logger.logMessage("Using cached location: " + locationService.currentLocation)
+                                    }
+                                } else {
+                                    logger.logMessage("Stopping automatic location detection...")
+                                    locationService.stopLocationUpdate()
+                                }
                             }
+                        }
+                        
+                        BusyIndicator {
+                            visible: locationService.isUpdating
+                            running: locationService.isUpdating
+                            width: 20
+                            height: 20
+                        }
+                    }
+                }
+                
+                // Authentication Section
+                GroupBox {
+                    title: "Authentication"
+                    Layout.fillWidth: true
+                    visible: !isLoggedIn
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        
+                        Label { text: "Username:" }
+                        TextField {
+                            id: mainUsernameField
+                            Layout.fillWidth: true
+                            placeholderText: "Username"
+                            text: configManager.username
+                            onTextChanged: configManager.username = text
+                        }
+                        
+                        Label { text: "Password:" }
+                        TextField {
+                            id: mainPasswordField
+                            Layout.fillWidth: true
+                            placeholderText: "Password"
+                            echoMode: TextInput.Password
                         }
                         
                         Button {
                             text: "Login"
-                            enabled: networkManager.connected && 
-                                    usernameField.text.length > 0 && 
-                                    passwordField.text.length > 0
+                            enabled: 
+                                    mainUsernameField.text.length > 0 && 
+                                    mainPasswordField.text.length > 0
                             onClicked: {
-                                if (configManager.setPassword(passwordField.text)) {
-                                    networkManager.login(usernameField.text, passwordField.text)
+                                configManager.username = mainUsernameField.text
+                                if (configManager.setPassword(mainPasswordField.text)) {
+                                    configManager.saveConfig()
+                                    networkManager.login(mainUsernameField.text, mainPasswordField.text)
                                 }
                             }
                         }
-                        
-                        Item { Layout.fillWidth: true }
-                        
-                        Button {
-                            text: "Save"
-                            onClicked: {
-                                configManager.serverIp = serverIpField.text
-                                configManager.serverPort = serverPortField.value
-                                configManager.threadCount = threadCountField.value
-                                configManager.username = usernameField.text
-                                
-                                if (passwordField.text.length > 0) {
-                                    configManager.setPassword(passwordField.text)
+                    }
+                }
+                
+                // Control Buttons
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 10
+                    Layout.bottomMargin: 10
+                    
+                    Item { Layout.fillWidth: true }
+                    
+                    Button {
+                        id: startButton
+                        text: "Start"
+                        enabled: !isRunning && networkManager.connected && isLoggedIn
+                        Layout.preferredWidth: 100
+                        onClicked: {
+                            if (locationField.text.length > 0) {
+                                // 如果位置发生变化，记录新的位置信息
+                                if (locationField.text !== configManager.location) {
+                                    logger.logMessage("Location changed to: " + locationField.text)
+                                    configManager.location = locationField.text
                                 }
+                                
+                                logger.logMessage("=== LATENCY CHECK START ===")
+                                logger.logMessage("Target location: " + locationField.text)
+                                logger.logMessage("Thread count: " + configManager.threadCount)
                                 
                                 configManager.saveConfig()
-                                logger.logMessage("Configuration saved successfully.")
-                                showConfig = false
+                                var ipList = networkManager.requestIpList()
                             }
                         }
                     }
+                    
+                    Item { Layout.preferredWidth: 20 }
+                    
+                    Button {
+                        id: stopButton
+                        text: "Stop"
+                        enabled: isRunning
+                        Layout.preferredWidth: 100
+                        onClicked: {
+                            latencyChecker.stopChecking()
+                            logger.endSession()
+                        }
+                    }
+                    
+                    Item { Layout.fillWidth: true }
+                }
+                
+                RowLayout {
+                    Layout.fillWidth: true
+                    
+                    Item { Layout.fillWidth: true }
                     
                     Label {
-                        text: "Connection Status: " + networkManager.connectionStatus
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        color: networkManager.connected ? "green" : "red"
+                        text: isRunning ? 
+                            `Progress: ${latencyChecker.progress}/${latencyChecker.totalIps}` :
+                            ""
                     }
                 }
-            }
-        }
-        
-        // Location Input
-        GroupBox {
-            title: "Location Information"
-            Layout.fillWidth: true
-            
-            RowLayout {
-                anchors.fill: parent
                 
-                TextField {
-                    id: locationField
+                // Progress Bar
+                ProgressBar {
                     Layout.fillWidth: true
-                    placeholderText: "Enter your location"
-                    text: configManager.location
-                    onTextChanged: configManager.location = text
+                    visible: isRunning
+                    value: latencyChecker.totalIps > 0 ? 
+                        latencyChecker.progress / latencyChecker.totalIps : 0
                 }
                 
-                CheckBox {
-                    id: autoLocationCheck
-                    text: "Auto Location"
-                    enabled: true  // Always enabled now
-                    onCheckedChanged: {
-                        if (checked) {
-                            logger.logMessage("Starting automatic location detection...")
-                            locationService.startLocationUpdate()
+                // Log Display
+                GroupBox {
+                    title: "Log Output"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    
+                    ScrollView {
+                        anchors.fill: parent
+                        
+                        TextArea {
+                            id: logTextArea  // Change id from logArea to logTextArea
+                            objectName: "logTextArea"  // 添加这行
+                            readOnly: true
+                            wrapMode: TextArea.Wrap
+                            selectByMouse: true
+                            selectByKeyboard: true
+                            persistentSelection: true
+                            font.family: "Consolas, Monaco, monospace"
                             
-                            // 如果已经有位置信息，立即更新到TextField
-                            if (locationService.currentLocation !== "Unknown" && locationService.currentLocation !== "") {
-                                locationField.text = locationService.currentLocation
-                                configManager.location = locationService.currentLocation
-                                logger.logMessage("Using cached location: " + locationService.currentLocation)
+                            Component.onCompleted: {
+                                window.logTextAreaRef = logTextArea
+                                // 移除这行调试输出
+                                // console.log("logTextArea reference set")
                             }
-                        } else {
-                            logger.logMessage("Stopping automatic location detection...")
-                            locationService.stopLocationUpdate()
+                            
+                            text: "Please configure connection settings and click Start to begin latency checking.\n"
                         }
                     }
                 }
                 
-                BusyIndicator {
-                    visible: locationService.isUpdating
-                    running: locationService.isUpdating
-                    width: 20
-                    height: 20
+                // Status Bar
+                Label {
+                    Layout.fillWidth: true
+                    text: `Log File: ${logger.currentLogFile || "None"}`
+                    font.pixelSize: 10
+                    color: "gray"
+                    Timer {
+                        id: saveStatusTimer
+                        interval: 3000
+                        onTriggered: {
+                            saveConfigStatus = ""
+                        }
+                    }
                 }
-            }
-        }
-        
-        // Control Buttons
-        RowLayout {
-            Layout.fillWidth: true
-            
-            Button {
-                id: startButton
-                text: "Start"
-                enabled: !isRunning && networkManager.connected
-                onClicked: {
-                    if (locationField.text.length > 0) {
-                        logger.startNewSession(locationField.text)
-                        configManager.saveConfig()
-                        
-                        // Request IP list from server
-                        var ipList = networkManager.requestIpList()
+                
+                // 添加Connections组件到ColumnLayout内部
+                Connections {
+                    target: locationService
+                    function onCurrentLocationChanged(location) {
+                        if (autoLocationCheck.checked && location !== undefined && location !== null && location !== "Unknown" && location !== "") {
+                            locationField.text = location
+                            configManager.location = location
+                            logger.logMessage("Location updated to: " + location)
+                        } else if (location === undefined || location === null) {
+                            logger.logMessage("Location detection returned invalid value")
+                            autoLocationCheck.checked = false
+                        }
+                    }
+                    
+                    function onLocationUpdateFailed(error) {
+                        logger.logMessage("Location detection failed: " + error)
+                        autoLocationCheck.checked = false
                     }
                 }
             }
-            
-            Button {
-                id: stopButton
-                text: "Stop"
-                enabled: isRunning
-                onClicked: {
-                    latencyChecker.stopChecking()
-                    logger.endSession()
-                }
-            }
-            
-            Item { Layout.fillWidth: true }
-            
-            Label {
-                text: isRunning ? 
-                    `Progress: ${latencyChecker.progress}/${latencyChecker.totalIps}` :
-                    "Ready"
-            }
         }
         
-        // Progress Bar
-        ProgressBar {
-            Layout.fillWidth: true
-            visible: isRunning
-            value: latencyChecker.totalIps > 0 ? 
-                latencyChecker.progress / latencyChecker.totalIps : 0
-        }
-        
-        // Log Display
-        GroupBox {
-            title: "Log Output"
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+        // 配置界面页面
+        Component {
+            id: configPage
             
-            ScrollView {
-                anchors.fill: parent
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                anchors.margins: 20
+                spacing: 15
                 
-                TextArea {
-                    id: logArea
-                    readOnly: true
-                    wrapMode: TextArea.Wrap
-                    selectByMouse: true
-                    font.family: "Consolas, Monaco, monospace"
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentWidth: availableWidth
                     
-                    text: "LatCheck v1.0 - Ready\n" +
-                          "Please configure connection settings and click Start to begin latency checking.\n"
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 15
+                        
+                        GroupBox {
+                            title: "Server Configuration"
+                            Layout.fillWidth: true
+                            
+                            GridLayout {
+                                columns: 2
+                                width: parent.width
+                                columnSpacing: 10
+                                
+                                Label { 
+                                    text: "Server IP:"
+                                    Layout.preferredWidth: 100
+                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                }
+                                TextField {
+                                    id: serverIpField
+                                    Layout.fillWidth: true
+                                    placeholderText: "127.0.0.1"
+                                    text: configManager.serverIp
+                                }
+                                
+                                Label { 
+                                    text: "Server Port:"
+                                    Layout.preferredWidth: 100
+                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                }
+                                TextField {
+                                    id: serverPortField
+                                    Layout.fillWidth: true
+                                    placeholderText: "8080"
+                                    text: configManager.serverPort.toString()
+                                    validator: IntValidator { bottom: 1; top: 65535 }
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                }
+                            }
+                        }
+                        
+                        GroupBox {
+                            title: "Threading Configuration"
+                            Layout.fillWidth: true
+                            
+                            GridLayout {
+                                columns: 2
+                                width: parent.width
+                                columnSpacing: 10
+                                
+                                Label { 
+                                    text: "Thread Count:"
+                                    Layout.preferredWidth: 100
+                                    Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                }
+                                TextField {
+                                    id: threadCountField
+                                    Layout.fillWidth: true
+                                    placeholderText: "50"
+                                    text: configManager.threadCount.toString()
+                                    validator: IntValidator { bottom: 1; top: 200 }
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                }
+                            }
+                        }
+                        
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 15
+                            Layout.bottomMargin: 10
+                            
+                            Item { Layout.fillWidth: true }
+                            
+                            Button {
+                                text: "Test Connection"
+                                enabled: serverIpField.text.length > 0
+                                Layout.preferredWidth: 120
+                                onClicked: {
+                                    statusMessage = ""
+                                    testConnectionStatus = ""
+                                    networkManager.testConnection(
+                                        serverIpField.text, 
+                                        parseInt(serverPortField.text) || 8080,
+                                        "",
+                                        "",
+                                        true
+                                    )
+                                }
+                            }
+                            
+                            Item { Layout.preferredWidth: 20 }
+                            
+                            Button {
+                                text: "Save"
+                                Layout.preferredWidth: 100
+                                onClicked: {
+                                    // Clear previous status
+                                    statusMessage = ""
+                                    testConnectionStatus = ""
+                                    saveConfigStatus = ""
+                                    
+                                    // Save configuration using property assignment
+                                    configManager.serverIp = serverIpField.text
+                                    configManager.serverPort = parseInt(serverPortField.text) || 8080
+                                    configManager.threadCount = parseInt(threadCountField.text) || 50
+                                    
+                                    configManager.saveConfig()
+                                    logger.logMessage("Configuration saved successfully.")
+                                    
+                                    // Show success status - 只设置统一状态
+                                    statusMessage = "Configurations are saved!"
+                                    statusSuccess = true
+                                    
+                                    // Clear status after 3 seconds
+                                    statusTimer.restart()
+                                }
+                            }
+                            
+                            Item { Layout.fillWidth: true }
+                        }
+                        
+                        // 统一状态显示标签
+                        Label {
+                            text: statusMessage || testConnectionStatus || saveConfigStatus
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            color: (statusSuccess || testConnectionSuccess || saveConfigSuccess) ? "green" : "red"
+                            visible: (statusMessage.length > 0 || testConnectionStatus.length > 0 || saveConfigStatus.length > 0)
+                            font.bold: true
+                        }                        
+                    }
                 }
             }
-        }
-        
-        // Status Bar
-        Label {
-            Layout.fillWidth: true
-            text: `Connection: ${networkManager.connectionStatus} | ` +
-                  `Log File: ${logger.currentLogFile || "None"}`
-            font.pixelSize: 10
-            color: "gray"
         }
     }
-    
-    // 删除这部分 - Configuration Dialog
-    // ConfigDialog {
-    //     id: configDialog
-    //     
-    //     onLoginRequested: function(username, password) {
-    //         networkManager.login(username, password)
-    //     }
-    //     
-    //     onConfigSaved: {
-    //         logArea.append("Configuration saved successfully.")
-    //     }
-    // }
     
     // Virtual Keyboard
     InputPanel {
@@ -340,7 +483,7 @@ ApplicationWindow {
             ParallelAnimation {
                 NumberAnimation {
                     properties: "y"
-                    duration: 250
+                    duration: 300
                     easing.type: Easing.InOutQuad
                 }
             }
@@ -353,62 +496,76 @@ ApplicationWindow {
         
         function onLoginResult(success, message) {
             if (success) {
-                logArea.append("Login successful: " + message)
+                isLoggedIn = true
+                if (stackView.currentItem && stackView.currentItem.logArea) {
+                    stackView.currentItem.logArea.append("Login successful: " + message)
+                }
             } else {
-                logArea.append("Login failed: " + message)
+                isLoggedIn = false
+                if (stackView.currentItem && stackView.currentItem.logArea) {
+                    stackView.currentItem.logArea.append("Login failed: " + message)
+                }
             }
         }
         
+        function onTestConnectionResult(message, success) {
+            testConnectionStatus = message
+            testConnectionSuccess = success
+            // 添加timer启动，3秒后自动清除状态
+            statusTimer.restart()
+        }
+        
         function onIpListReceived(ipList) {
-            logArea.append(`Received ${ipList.length} IP addresses from server`)
             latencyChecker.startChecking(ipList, configManager.threadCount)
         }
         
         function onErrorOccurred(error) {
-            logArea.append("Network Error: " + error)
-        }
-    }
-    
-    Connections {
-        target: latencyChecker
-        
-        function onLatencyResult(ip, latency) {
-            logger.logLatencyResult(ip, latency)
-        }
-        
-        function onCheckingFinished(results) {
-            logArea.append(`Latency checking completed. Processed ${results.length} IPs.`)
-            logger.endSession()
+            // 使用存储的引用，直接显示原始错误消息
+            if (logTextAreaRef && logTextAreaRef.append) {
+                logTextAreaRef.append(error)  // 直接显示error内容，不添加时间戳前缀
+            }
         }
     }
     
     Connections {
         target: logger
-        
         function onLogMessageAdded(message) {
-            logArea.append(message)
+            // 添加安全检查，避免在UI未初始化时处理信号
+            if (stackView && stackView.currentItem && stackView.currentItem.logArea) {
+                stackView.currentItem.logArea.append(message)
+            } else {
+                // 如果UI未准备好，暂存消息或输出到控制台
+                console.log("Logger:", message)
+            }
         }
     }
     
-    // Connections for location service
-    Connections {
-        target: locationService
-        
-        function onCurrentLocationChanged() {
-            // 无论复选框状态如何，都更新位置信息到TextField
-            locationField.text = locationService.currentLocation
-            configManager.location = locationService.currentLocation
-            
-            // 如果自动定位未选中，显示提示信息
-            if (!autoLocationCheck.checked) {
-                logger.logMessage("Location detected: " + locationService.currentLocation + " (Auto location is disabled)")
+    Component.onCompleted: {
+        // 延迟更长时间，确保UI完全初始化
+        Qt.callLater(function() {
+            try {
+                var initialLocation = configManager.location || "Application Startup"
+                logger.startNewSession(initialLocation)
+                
+                // 只保留简洁的启动消息
+                logger.logMessage("LatCheck v2.0 started")
+                
+                // 移除以下冗余日志：
+                /*
+                logger.logMessage("=== APPLICATION STARTUP ===")
+                logger.logMessage("Initializing components...")
+                logger.logMessage("Loading configuration from: " + configManager.configFilePath)
+                logger.logMessage("Server: " + configManager.serverIp + ":" + configManager.serverPort)
+                logger.logMessage("Thread count: " + configManager.threadCount)
+                logger.logMessage("Auto location: " + (configManager.autoLocation ? "enabled" : "disabled"))
+                logger.logMessage("Network manager initialized")
+                logger.logMessage("Location service initialized")
+                logger.logMessage("Latency checker initialized")
+                logger.logMessage("=== STARTUP COMPLETE ===")
+                */
+            } catch (error) {
+                console.log("Logger startup error:", error)
             }
-        }
-        
-        function onLocationUpdateFailed(error) {
-            logArea.append("Location update failed: " + error)
-            // 失败时也无需检查复选框状态，直接显示错误信息
-            locationField.text = "Location detection failed"
-        }
+        })
     }
 }

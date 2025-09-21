@@ -1,6 +1,0 @@
---resource
-D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/.qt/rcc/qmake_latcheck.qrc
---resource
-D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/.qt/rcc/applatcheck_raw_qml_0.qrc
-/qt/qml/latcheck/Main.qml
-/qt/qml/latcheck/ConfigDialog.qml

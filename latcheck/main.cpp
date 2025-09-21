@@ -15,15 +15,15 @@ int main(int argc, char *argv[])
     
     // Set application properties
     app.setApplicationName("LatCheck");
-    app.setApplicationVersion("1.0");
+    app.setApplicationVersion("2.0");
     app.setOrganizationName("LatCheck");
 
     // Register QML types
-    qmlRegisterType<NetworkManager>("LatCheck", 1, 0, "NetworkManager");
-    qmlRegisterType<ConfigManager>("LatCheck", 1, 0, "ConfigManager");
-    qmlRegisterType<LatencyChecker>("LatCheck", 1, 0, "LatencyChecker");
-    qmlRegisterType<Logger>("LatCheck", 1, 0, "Logger");
-    qmlRegisterType<LocationService>("LatCheck", 1, 0, "LocationService");
+    qmlRegisterType<NetworkManager>("LatCheck", 2, 0, "NetworkManager");
+    qmlRegisterType<ConfigManager>("LatCheck", 2, 0, "ConfigManager");
+    qmlRegisterType<LatencyChecker>("LatCheck", 2, 0, "LatencyChecker");
+    qmlRegisterType<Logger>("LatCheck", 2, 0, "Logger");
+    qmlRegisterType<LocationService>("LatCheck", 2, 0, "LocationService");
 
     // Create and expose global instances BEFORE creating engine
     ConfigManager configManager;
@@ -38,8 +38,8 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     
     // Register singletons
-    qmlRegisterSingletonInstance("LatCheck", 1, 0, "LocationService", &locationService);
-    qmlRegisterSingletonInstance("LatCheck", 1, 0, "Logger", &logger);
+    qmlRegisterSingletonInstance("LatCheck", 2, 0, "LocationService", &locationService);
+    qmlRegisterSingletonInstance("LatCheck", 2, 0, "Logger", &logger);
     
     // Set context properties BEFORE loading QML
     engine.rootContext()->setContextProperty("configManager", &configManager);

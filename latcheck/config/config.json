@@ -1,0 +1,25 @@
+{
+  "server": {
+    "ip": "127.0.0.1",
+    "port": 8443
+  },
+  "threading": {
+    "count": 50
+  },
+  "auth": {
+    "username": "",
+    "password_hash": "",
+    "salt": ""
+  },
+  "location": {
+    "text": "",
+    "auto": false
+  },
+  "certificates": {
+    "client_cert": "",
+    "client_key": ""
+  },
+  "ssl": {
+    "ignore_errors": true
+  }
+}

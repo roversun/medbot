@@ -1,6 +1,0 @@
-module latcheck
-typeinfo applatcheck.qmltypes
-prefer :/qt/qml/latcheck/
-Main 1.0 Main.qml
-ConfigDialog 1.0 ConfigDialog.qml
-

@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="/qt/qml/latcheck">
-    <file alias="qmldir">D:/dev/qt_projects/latcheck/build/Desktop_Qt_6_9_1_llvm_mingw_64_bit-Debug/latcheck/qmldir</file>
-  </qresource>
-</RCC>
-
