@@ -1,0 +1,36 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "database": "latcheck",
+    "username": "latcheck_user",
+    "password": "Medbot8848@hlht",
+    "min_connections": 5,
+    "max_connections": 10,
+    "connection_timeout": 30,
+    "idle_timeout": 300,
+    "charset": "utf8mb4",
+    "enable_ssl": false
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8443,
+    "certificate": "config/certs/server.crt",
+    "private_key": "config/certs/server.key",
+    "max_connections": 1000,
+    "connection_timeout": 300,
+    "enable_ssl": true,
+    "protocol": "TLSv1.2",
+    "cipher_suites": [],
+    "require_client_cert": false
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/server.log",
+    "max_file_size": 10485760,
+    "max_files": 5,
+    "enable_console": true,
+    "enable_file": true,
+    "format": "[%{time yyyy-MM-dd hh:mm:ss.zzz}] [%{type}] %{message}"
+  }
+}

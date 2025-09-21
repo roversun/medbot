@@ -1,0 +1,76 @@
+[0;34m[INFO][0m 创建必要的目录...
+[0;32m[SUCCESS][0m 目录创建完成
+[0;34m[INFO][0m SSL证书已存在，跳过生成
+[0;34m[INFO][0m 检查编译依赖...
+[0;34m[INFO][0m 配置CMake...
+[0;34m[INFO][0m 使用Qt6路径: /home/kevin/Qt/6.9.1/gcc_64/lib/cmake/Qt6
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Performing Test HAVE_STDATOMIC
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE  
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.13")  
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1") 
+-- Checking for module 'mysqlclient'
+--   Found mysqlclient, version 21.2.43
+-- Configuring done (5.1s)
+-- Generating done (1.0s)
+-- Build files have been written to: /mnt/medbot/latcheck_server/build
+[0;32m[SUCCESS][0m CMake配置完成
+[0;34m[INFO][0m 开始编译项目...
+[0;34m[INFO][0m 使用 8 个核心进行并行编译
+[  0%] Built target latcheck_server_autogen_timestamp_deps
+[  7%] Automatic MOC and UIC for target latcheck_server
+[  7%] Built target latcheck_server_autogen
+[ 30%] Building CXX object CMakeFiles/latcheck_server.dir/latcheck_server_autogen/mocs_compilation.cpp.o
+[ 38%] Building CXX object CMakeFiles/latcheck_server.dir/src/config/config_manager.cpp.o
+[ 38%] Building CXX object CMakeFiles/latcheck_server.dir/main.cpp.o
+[ 46%] Building CXX object CMakeFiles/latcheck_server.dir/src/logger/logger.cpp.o
+[ 69%] Building CXX object CMakeFiles/latcheck_server.dir/src/database/database_pool.cpp.o
+[ 69%] Building CXX object CMakeFiles/latcheck_server.dir/src/database/user_dao.cpp.o
+[ 69%] Building CXX object CMakeFiles/latcheck_server.dir/src/database/base_dao.cpp.o
+[ 69%] Building CXX object CMakeFiles/latcheck_server.dir/src/database/report_dao.cpp.o
+[ 76%] Building CXX object CMakeFiles/latcheck_server.dir/src/protocol/message_protocol.cpp.o
+[ 84%] Building CXX object CMakeFiles/latcheck_server.dir/src/server/tls_server.cpp.o
+/mnt/medbot/latcheck_server/main.cpp: In static member function ‘static void LatCheckServer::termSignalHandler(int)’:
+/mnt/medbot/latcheck_server/main.cpp:223:16: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  223 |         ::write(sigtermFd[0], &a, sizeof(a));
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/main.cpp: In static member function ‘static void LatCheckServer::intSignalHandler(int)’:
+/mnt/medbot/latcheck_server/main.cpp:218:16: warning: ignoring return value of ‘ssize_t write(int, const void*, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  218 |         ::write(sigintFd[0], &a, sizeof(a));
+      |         ~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/main.cpp: In member function ‘void LatCheckServer::handleSigTerm()’:
+/mnt/medbot/latcheck_server/main.cpp:242:15: warning: ignoring return value of ‘ssize_t read(int, void*, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  242 |         ::read(sigtermFd[1], &tmp, sizeof(tmp));
+      |         ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/main.cpp: In member function ‘void LatCheckServer::handleSigInt()’:
+/mnt/medbot/latcheck_server/main.cpp:230:15: warning: ignoring return value of ‘ssize_t read(int, void*, size_t)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+  230 |         ::read(sigintFd[1], &tmp, sizeof(tmp));
+      |         ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[ 92%] Building CXX object CMakeFiles/latcheck_server.dir/src/auth/auth_manager.cpp.o
+/mnt/medbot/latcheck_server/src/protocol/message_protocol.cpp: In static member function ‘static ListResponseData MessageProtocol::deserializeListResponse(const QByteArray&)’:
+/mnt/medbot/latcheck_server/src/protocol/message_protocol.cpp:98:21: warning: comparison of integer expressions of different signedness: ‘qsizetype’ {aka ‘long long int’} and ‘long unsigned int’ [-Wsign-compare]
+   98 |     if (data.size() < sizeof(quint32)) {
+      |         ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/src/protocol/message_protocol.cpp: In static member function ‘static ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray&)’:
+/mnt/medbot/latcheck_server/src/protocol/message_protocol.cpp:160:21: warning: comparison of integer expressions of different signedness: ‘qsizetype’ {aka ‘long long int’} and ‘long unsigned int’ [-Wsign-compare]
+  160 |     if (data.size() < sizeof(quint32) + sizeof(reportData.recordCount)) {
+      |         ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/src/protocol/message_protocol.cpp:172:21: warning: comparison of integer expressions of different signedness: ‘qsizetype’ {aka ‘long long int’} and ‘long unsigned int’ [-Wsign-compare]
+  172 |     if (data.size() < sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount)) {
+      |         ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/medbot/latcheck_server/src/server/tls_server.cpp: In member function ‘void TlsServer::onDataReceived()’:
+/mnt/medbot/latcheck_server/src/server/tls_server.cpp:435:35: warning: comparison of integer expressions of different signedness: ‘qsizetype’ {aka ‘long long int’} and ‘long unsigned int’ [-Wsign-compare]
+  435 |     while (session->buffer.size() >= sizeof(MessageHeader)) {
+      |            ~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
+[100%] Linking CXX executable latcheck_server
+[100%] Built target latcheck_server
+[0;32m[SUCCESS][0m 项目编译完成
