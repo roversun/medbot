@@ -11,8 +11,9 @@
 #include <QHostAddress>
 #include <QtEndian>
 
+// 在NetworkManager构造函数中添加连接
 NetworkManager::NetworkManager(QObject *parent, ConfigManager *configManager)
-    : QObject(parent), m_socket(nullptr), m_connected(false), m_connectionStatus("Disconnected"), m_ignoreSslErrors(false)
+    : QObject(parent), m_socket(nullptr), m_connected(false), m_connectionStatus("Disconnected"), m_ignoreSslErrors(false), m_latencyChecker(nullptr), m_autoStartLatencyCheck(true)
 {
     m_configManager = configManager; // 添加这行
     m_socket = new QSslSocket(this);
@@ -29,6 +30,15 @@ NetworkManager::NetworkManager(QObject *parent, ConfigManager *configManager)
             this, &NetworkManager::onSocketError);
     // 添加SSL握手完成信号的连接
     connect(m_socket, &QSslSocket::encrypted, this, &NetworkManager::onEncrypted);
+    // 初始化LatencyChecker
+    m_latencyChecker = new LatencyChecker(this);
+    connect(m_latencyChecker, &LatencyChecker::checkingFinished, this, &NetworkManager::onLatencyCheckFinished);
+    connect(m_latencyChecker, &LatencyChecker::latencyResult, this, &NetworkManager::onLatencyResult);
+    connect(m_latencyChecker, &LatencyChecker::runningChanged, this, &NetworkManager::latencyCheckRunningChanged);
+    connect(m_latencyChecker, &LatencyChecker::progressChanged, this, [this]()
+            { emit latencyCheckProgress(m_latencyChecker->progress(), m_latencyChecker->totalIps()); });
+    connect(m_latencyChecker, &LatencyChecker::logMessage, this, [this](const QString &message)
+            { emit errorOccurred(formatLogMessage("[LatencyChecker] " + message)); }); // 连接日志信号
 }
 
 NetworkManager::~NetworkManager()
@@ -114,10 +124,10 @@ void NetworkManager::connectToServer(const QString &host, int port,
 
     // Force TLS 1.3 protocol
     QSslConfiguration sslConfig = m_socket->sslConfiguration();
-    sslConfig.setProtocol(QSsl::TlsV1_3OrLater);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
     m_socket->setSslConfiguration(sslConfig);
 
-    emit errorOccurred(formatLogMessage("Forcing TLS 1.3 protocol"));
+    emit errorOccurred(formatLogMessage("Forcing TLS 1.2 or later protocol"));
 
     // Connect to server
     m_socket->connectToHostEncrypted(host, port);
@@ -179,7 +189,7 @@ void NetworkManager::testConnection(const QString &host, int port,
     testSocket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
     // Load client certificates if provided
-    if (!certPath.isEmpty() && !keyPath.isEmpty())
+    if (!certPath.isEmpty() && !keyPath.isEmpty() && false)
     {
         // Load certificates for test socket
         QFile certFile(certPath);
@@ -220,10 +230,10 @@ void NetworkManager::testConnection(const QString &host, int port,
 
     // Force TLS 1.3 protocol for test connection
     QSslConfiguration sslConfig = testSocket->sslConfiguration();
-    sslConfig.setProtocol(QSsl::TlsV1_3OrLater);
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
     testSocket->setSslConfiguration(sslConfig);
 
-    emit errorOccurred(formatLogMessage("Forcing TLS 1.3 protocol for test connection"));
+    emit errorOccurred(formatLogMessage("Forcing TLS 1.2 or later protocol for test connection"));
 
     // Connect to server
     testSocket->connectToHostEncrypted(host, port);
@@ -516,14 +526,14 @@ void NetworkManager::processIncomingMessage()
     while (m_receivedData.size() >= sizeof(MessageHeader))
     {
         // 直接使用指针转换解析消息头（高效）
-        const char* rawData = m_receivedData.constData();
-        const MessageHeader* headerPtr = reinterpret_cast<const MessageHeader*>(rawData);
-        
+        const char *rawData = m_receivedData.constData();
+        const MessageHeader *headerPtr = reinterpret_cast<const MessageHeader *>(rawData);
+
         // 处理字节序
         MessageHeader header;
         header.msgType = qFromBigEndian(headerPtr->msgType);
         header.dataLength = qFromBigEndian(headerPtr->dataLength);
-        
+
         // emit errorOccurred(formatLogMessage(QString("📨 Message header - Type: 0x%1, Length: %2")
         //                                   .arg(header.msgType, 4, 16, QChar('0')).arg(header.dataLength)));
 
@@ -532,12 +542,13 @@ void NetworkManager::processIncomingMessage()
         if (m_receivedData.size() < totalMessageSize)
         {
             emit errorOccurred(formatLogMessage(QString("⏳ Waiting for more data - Need: %1, Have: %2")
-                                              .arg(totalMessageSize).arg(m_receivedData.size())));
+                                                    .arg(totalMessageSize)
+                                                    .arg(m_receivedData.size())));
             break;
         }
 
         // emit errorOccurred(formatLogMessage(QString("✅ Processing complete message of %1 bytes").arg(totalMessageSize)));
-        
+
         // 验证数据长度合理性
         if (header.dataLength > 1024 * 1024) // 1MB 限制
         {
@@ -555,10 +566,10 @@ void NetworkManager::processIncomingMessage()
 
         // 处理具体消息类型
         handleMessage(static_cast<MessageType>(header.msgType), messageData);
-        
+
         // 从缓冲区移除已处理的数据
         m_receivedData = m_receivedData.mid(totalMessageSize);
-        
+
         // emit errorOccurred(formatLogMessage(QString("📦 Remaining buffer size: %1 bytes").arg(m_receivedData.size())));
     }
 }
@@ -593,39 +604,6 @@ void NetworkManager::handleMessage(MessageType msgType, const QByteArray &messag
         emit errorOccurred(formatLogMessage(QString("⚠️ Unknown message type: 0x%1").arg(static_cast<quint32>(msgType), 4, 16, QChar('0'))));
         break;
     }
-}
-
-// 修改processServerListResponse方法以正确解析服务器列表
-void NetworkManager::processServerListResponse(const QByteArray &data)
-{
-    QDataStream stream(data);
-    stream.setByteOrder(QDataStream::BigEndian);
-
-    quint32 serverCount;
-    stream >> serverCount;
-
-    QVariantList serverList;
-    for (quint32 i = 0; i < serverCount; ++i)
-    {
-        quint32 serverId, ipAddr;
-        stream >> serverId >> ipAddr;
-
-        // 将IP地址从整数转换为字符串
-        QString ipString = QString("%1.%2.%3.%4")
-                               .arg((ipAddr >> 24) & 0xFF)
-                               .arg((ipAddr >> 16) & 0xFF)
-                               .arg((ipAddr >> 8) & 0xFF)
-                               .arg(ipAddr & 0xFF);
-
-        QVariantMap server;
-        server["server_id"] = serverId;
-        server["ip_address"] = ipString;
-        serverList.append(server);
-    }
-
-    emit ipListReceived(serverList);
-    emit errorOccurred(formatLogMessage(QString("Received %1 servers from server")
-                                            .arg(serverCount)));
 }
 
 // 修改createReportRequestData方法以符合服务器期望的格式
@@ -692,9 +670,9 @@ void NetworkManager::onReadyRead()
 {
     QByteArray newData = m_socket->readAll();
     emit errorOccurred(formatLogMessage(QString("📥 Received %1 bytes").arg(newData.size())));
-    
+
     m_receivedData.append(newData);
-    // emit errorOccurred(formatLogMessage(QString("📦 Total buffer size: %1 bytes").arg(m_receivedData.size())));
+    emit errorOccurred(formatLogMessage(QString("📦 Total buffer size: %1 bytes").arg(m_receivedData.size())));
 
     // 简单地尝试处理缓冲区中的数据
     processIncomingMessage();
@@ -840,4 +818,102 @@ QVariantList NetworkManager::parseIpList(const QByteArray &data)
     }
 
     return ipList;
+}
+
+bool NetworkManager::latencyCheckRunning() const
+{
+    return m_latencyChecker ? m_latencyChecker->running() : false;
+}
+
+void NetworkManager::startLatencyCheck(int threadCount)
+{
+    if (!m_latencyChecker || m_currentServerList.isEmpty())
+    {
+        emit errorOccurred(formatLogMessage("⚠️ No servers available for latency check"));
+        return;
+    }
+
+    emit errorOccurred(formatLogMessage("🚀 Starting latency check..."));
+
+    // 传递完整的服务器列表而不仅仅是IP列表
+    m_latencyChecker->startChecking(m_currentServerList, threadCount);
+}
+
+void NetworkManager::stopLatencyCheck()
+{
+    if (m_latencyChecker)
+    {
+        m_latencyChecker->stopChecking();
+        emit errorOccurred(formatLogMessage("⏹️ Latency check stopped"));
+    }
+}
+
+void NetworkManager::onLatencyResult(quint32 serverId, quint32 ipAddr, int latency)
+{
+    QString ipString = QHostAddress(ipAddr).toString();
+    QString message = QString("Server ID %1 (%2): %3ms")
+                     .arg(serverId)
+                     .arg(ipString)
+                     .arg(latency >= 0 ? QString::number(latency) : "Failed");
+    
+    emit latencyCheckProgress(m_latencyChecker->progress(), m_latencyChecker->totalIps());
+    
+    // If you need to maintain backward compatibility with UI expecting string IP:
+    // You can emit a separate signal or convert the data as needed
+}
+
+void NetworkManager::onLatencyCheckFinished(const QVariantList &results)
+{
+    emit errorOccurred(formatLogMessage(QString("✅ Latency check completed for %1 servers").arg(results.size())));
+    emit latencyCheckFinished(results);
+
+    // 自动上传结果到服务器
+    if (connected())
+    {
+        // 这里需要获取当前位置信息
+        QString location = "Unknown"; // 可以从LocationService获取
+        sendReportRequest(location, results);
+    }
+}
+
+// 修改processServerListResponse函数，添加自动启动延时检测
+void NetworkManager::processServerListResponse(const QByteArray &data)
+{
+    QDataStream stream(data);
+    stream.setByteOrder(QDataStream::BigEndian);
+
+    quint32 serverCount;
+    stream >> serverCount;
+
+    QVariantList serverList;
+    for (quint32 i = 0; i < serverCount; ++i)
+    {
+        quint32 serverId, ipAddr;
+        stream >> serverId >> ipAddr;
+
+        // 修复：使用QHostAddress正确处理IP地址转换
+        QHostAddress address(ipAddr);
+        QString ipString = address.toString();
+
+        // emit errorOccurred(formatLogMessage(QString("📋 server %1:%2")
+        //                                         .arg(serverId)
+        //                                         .arg(ipString)));
+
+        QVariantMap server;
+        server["server_id"] = serverId;
+        server["ip_address"] = ipString;
+        serverList.append(server);
+    }
+
+    m_currentServerList = serverList;
+    emit ipListReceived(serverList);
+    emit errorOccurred(formatLogMessage(QString("📋 Received %1 servers from server")
+                                            .arg(serverCount)));
+
+    // 自动启动延时检测
+    if (m_autoStartLatencyCheck && !serverList.isEmpty())
+    {
+        emit errorOccurred(formatLogMessage("🔄 Auto-starting latency check..."));
+        startLatencyCheck(4); // 使用4个线程
+    }
 }

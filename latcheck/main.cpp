@@ -1,4 +1,11 @@
 #include <QGuiApplication>
+// 首先包含Windows特定头文件
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+#endif
+
+// 然后再包含其他Qt和自定义头文件
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include "networkmanager.h"
@@ -6,10 +13,33 @@
 #include "latencychecker.h"
 #include "logger.h"
 #include "locationservice.h"
+#include <QDir>
+#include <QLoggingCategory>
+#include <QQuickStyle>
 
 int main(int argc, char *argv[])
 {
-    qputenv("QT_IM_MODULE", QByteArray("qtvirtualkeyboard"));
+#ifdef Q_OS_WIN
+    // 初始化Winsock（应用程序启动时一次性初始化）
+    WSADATA wsaData;
+    int wsaResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (wsaResult != 0)
+    {
+        qDebug() << "WSAStartup failed with error:" << wsaResult;
+        return -1;
+    }
+#endif
+
+    // 设置虚拟键盘环境变量
+    qputenv("QT_IM_MODULE", "qtvirtualkeyboard");
+    // 首先设置默认语言
+    qputenv("QT_VIRTUALKEYBOARD_DEFAULT_LOCALE", "en_US");
+    qputenv("QT_VIRTUALKEYBOARD_DESKTOP_DISABLE", "1");
+    qputenv("QT_VIRTUALKEYBOARD_AVAILABLE_LOCALES", "en_US zh_CN");
+    qputenv("QT_VIRTUALKEYBOARD_ACTIVE_LOCALES", "en_US zh_CN");
+    qputenv("QT_VIRTUALKEYBOARD_STYLE", "default");
+    qputenv("QT_VIRTUALKEYBOARD_LAYOUT_PATH", ":/qt-project.org/imports/QtQuick/VirtualKeyboard/Layouts");
+    qputenv("QT_VIRTUALKEYBOARD_HEIGHT_RATIO", "0.3");
 
     QGuiApplication app(argc, argv);
 
@@ -59,5 +89,12 @@ int main(int argc, char *argv[])
     // Load QML AFTER setting context properties
     engine.loadFromModule("latcheck", "Main");
 
-    return app.exec();
+    int result = app.exec();
+
+#ifdef Q_OS_WIN
+    // 应用程序退出时清理
+    WSACleanup();
+#endif
+
+    return result;
 }

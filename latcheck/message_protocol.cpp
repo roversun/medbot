@@ -21,13 +21,11 @@ QByteArray MessageProtocol::serializeHeader(const MessageHeader& header)
     
     return data;
 }
-
-
-MessageHeader MessageProtocol::deserializeHeader(const QByteArray &data)
+MessageHeader MessageProtocol::deserializeHeader(const QByteArray& data)
 {
     MessageHeader header;
     if (data.size() < 8) {
-        return header; 
+        return header;
     }
     
     QDataStream stream(data);
@@ -71,38 +69,39 @@ QByteArray MessageProtocol::serializeListResponse(const QList<ServerInfo> &serve
     QByteArray data;
     QDataStream stream(&data, QIODevice::WriteOnly);
     stream.setByteOrder(QDataStream::BigEndian);
-    
+
     // 写入服务器数量
     stream << static_cast<quint32>(servers.size());
-    
-    // 写入每个服务器信息
-    for (const ServerInfo &server : servers) {
-        stream << server.serverId << server.ipAddr;
+
+    for (const ServerInfo &server : servers)
+    {
+        stream << server.serverId;
+        stream << server.ipAddr;
     }
-    
+
     return data;
 }
 
 ListResponseData MessageProtocol::deserializeListResponse(const QByteArray &data)
 {
-    ListResponseData listData;
-    if (data.size() < 4) {
-        return listData;
-    }
-    
+    ListResponseData response;
     QDataStream stream(data);
     stream.setByteOrder(QDataStream::BigEndian);
-    
-    stream >> listData.serverCount;
-    
-    // 读取服务器信息
-    for (quint32 i = 0; i < listData.serverCount && !stream.atEnd(); ++i) {
+
+    // 读取服务器数量
+    stream >> response.serverCount;
+
+    // 读取每个服务器信息（只包含serverId和ipAddr）
+    for (quint32 i = 0; i < response.serverCount; ++i)
+    {
         ServerInfo server;
-        stream >> server.serverId >> server.ipAddr;
-        listData.servers.append(server);
+        stream >> server.serverId;
+        stream >> server.ipAddr;
+
+        response.servers.append(server);
     }
-    
-    return listData;
+
+    return response;
 }
 
 QByteArray MessageProtocol::serializeReportRequest(const QString &location, const QList<LatencyRecord> &records)

@@ -11,12 +11,14 @@
 #include <QHostAddress>
 #include "configmanager.h"
 #include "message_protocol.h"
+#include "latencychecker.h"
 
 class NetworkManager : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString connectionStatus READ connectionStatus NOTIFY connectionStatusChanged)
+    Q_PROPERTY(bool latencyCheckRunning READ latencyCheckRunning NOTIFY latencyCheckRunningChanged)
 
 public:
     explicit NetworkManager(QObject *parent = nullptr, ConfigManager *configManager = nullptr);
@@ -26,6 +28,9 @@ public:
 
     bool connected() const;
     QString connectionStatus() const;
+    bool latencyCheckRunning() const;
+    Q_INVOKABLE void startLatencyCheck(int threadCount = 4);
+    Q_INVOKABLE void stopLatencyCheck();
 
     Q_INVOKABLE void connectToServer(const QString &host, int port,
                                      const QString &certPath, const QString &keyPath, bool ignoreSslErrors = false);
@@ -49,6 +54,9 @@ signals:
     void testConnectionResult(const QString &message, bool success);
     void tlsVersionDetected(const QString &version);
     void reportUploadResult(bool success, const QString &reportId, const QString &message);
+    void latencyCheckRunningChanged();
+    void latencyCheckProgress(int current, int total);
+    void latencyCheckFinished(const QVariantList &results);
 
 private slots:
     void onConnected();
@@ -56,7 +64,9 @@ private slots:
     void onSslErrors(const QList<QSslError> &errors);
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError error);
-    void onEncrypted(); // 新增：SSL握手完成信号处理
+    void onEncrypted();
+    void onLatencyCheckFinished(const QVariantList &results);
+    void onLatencyResult(quint32 serverId, quint32 ipAddr, int latency);
 
 private:
     QString getTlsProtocolVersion();
@@ -68,6 +78,9 @@ private:
     QString m_currentHost;
     int m_currentPort;
     bool m_ignoreSslErrors;
+    LatencyChecker *m_latencyChecker;
+    QVariantList m_currentServerList;
+    bool m_autoStartLatencyCheck;
 
     void setConnected(bool connected);
     void setConnectionStatus(const QString &status);

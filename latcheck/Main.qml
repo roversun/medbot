@@ -83,8 +83,8 @@ ApplicationWindow {
                 property alias logArea: logTextArea  // Keep this alias in ColumnLayout
                 width: parent.width
                 height: parent.height
-                anchors.margins: 20
-                spacing: 15
+                anchors.margins: 0
+                spacing: 0
                 
                 // Location Input
                 GroupBox {
@@ -100,6 +100,7 @@ ApplicationWindow {
                             placeholderText: "Enter your location"
                             text: configManager.location
                             onTextChanged: configManager.location = text
+                            inputMethodHints: Qt.ImhNone  // 允许所有输入法
                         }
                         
                         CheckBox {
@@ -108,7 +109,7 @@ ApplicationWindow {
                             enabled: true
                             onCheckedChanged: {
                                 if (checked) {
-                                    logger.logMessage("Starting automatic location detection...")
+                                    // logger.logMessage("Starting automatic location detection...")
                                     locationService.startLocationUpdate()
                                     
                                     if (locationService.currentLocation !== "Unknown" && locationService.currentLocation !== "") {
@@ -117,7 +118,7 @@ ApplicationWindow {
                                         logger.logMessage("Using cached location: " + locationService.currentLocation)
                                     }
                                 } else {
-                                    logger.logMessage("Stopping automatic location detection...")
+                                    // logger.logMessage("Stopping automatic location detection...")
                                     locationService.stopLocationUpdate()
                                 }
                             }
@@ -148,6 +149,7 @@ ApplicationWindow {
                             placeholderText: "Username"
                             text: configManager.username
                             onTextChanged: configManager.username = text
+                            inputMethodHints: Qt.ImhNone  // 允许所有输入法
                         }
                         
                         Label { text: "Password:" }
@@ -162,13 +164,34 @@ ApplicationWindow {
                             text: "Login"
                             enabled: 
                                     mainUsernameField.text.length > 0 && 
-                                    mainPasswordField.text.length > 0
+                                    mainPasswordField.text.length > 0 &&
+                                    !isRunning  // 添加：运行时禁用login按钮
                             onClicked: {
                                 logger.logMessage("Login attempt with username: " + mainUsernameField.text)
+                                
+                                // 添加：如果已连接，先断开
+                                if (networkManager.connected) {
+                                    logger.logMessage("→ Disconnecting existing connection...")
+                                    networkManager.disconnectFromServer()
+                                }
+                                
                                 configManager.username = mainUsernameField.text
                                 if (configManager.setPassword(mainPasswordField.text)) {
                                     configManager.saveConfig()
-                                    networkManager.login(mainUsernameField.text, mainPasswordField.text)
+                                    
+                                    // 延迟一点时间确保断开完成后再连接
+                                    Qt.callLater(function() {
+                                        networkManager.connectToServer(
+                                            configManager.serverIp,
+                                            configManager.serverPort,
+                                            "",
+                                            "",
+                                            true
+                                        )
+                                        
+                                        // 连接成功后自动登录
+                                        networkManager.login(mainUsernameField.text, mainPasswordField.text)
+                                    })
                                 }
                             }
                         }
@@ -179,9 +202,53 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.topMargin: 10
-                    Layout.bottomMargin: 10
+                    Layout.bottomMargin: 0
                     
                     Item { Layout.fillWidth: true }
+                    
+                    // 添加：状态图标和文本
+                    RowLayout {
+                        spacing: 8
+                        
+                        Label {
+                            id: statusIcon
+                            text: {
+                                if (isRunning) {
+                                    return "🔄"  // 运行中图标
+                                } else if (networkManager.connected && isLoggedIn) {
+                                    return "✅"  // 就绪图标
+                                } else {
+                                    return "❌"  // 断开图标
+                                }
+                            }
+                            font.pixelSize: 16
+                        }
+                        
+                        Label {
+                            id: statusText
+                            text: {
+                                if (isRunning) {
+                                    return "运行中..."
+                                } else if (networkManager.connected && isLoggedIn) {
+                                    return "Ready"
+                                } else {
+                                    return "Disconnected"
+                                }
+                            }
+                            color: {
+                                if (isRunning) {
+                                    return "#2196F3"  // 蓝色
+                                } else if (networkManager.connected && isLoggedIn) {
+                                    return "#4CAF50"  // 绿色
+                                } else {
+                                    return "#F44336"  // 红色
+                                }
+                            }
+                            font.bold: true
+                        }
+                    }
+                    
+                    Item { Layout.preferredWidth: 20 }
                     
                     Button {
                         id: startButton
@@ -216,10 +283,12 @@ ApplicationWindow {
                         text: "Stop"
                         enabled: isRunning
                         Layout.preferredWidth: 100
-                        onClicked: {
-                            logger.logMessage("=== LATENCY CHECK STOPPED ===")
+                        onClicked: {                            
                             latencyChecker.stopChecking()
+                            // 添加：立即重置运行状态
+                            isRunning = false
                             logger.endSession()
+                            logger.logMessage("=== LATENCY CHECK STOPPED ===")
                         }
                     }
                     
@@ -256,8 +325,8 @@ ApplicationWindow {
                         anchors.fill: parent
                         
                         TextArea {
-                            id: logTextArea  // Change id from logArea to logTextArea
-                            objectName: "logTextArea"  // 添加这行
+                            id: logTextArea
+                            objectName: "logTextArea"
                             readOnly: true
                             wrapMode: TextArea.Wrap
                             selectByMouse: true
@@ -265,10 +334,27 @@ ApplicationWindow {
                             persistentSelection: true
                             font.family: "Consolas, Monaco, monospace"
                             
+                            property int lineNumber: 1
+                            
                             Component.onCompleted: {
                                 window.logTextAreaRef = logTextArea
-                                // 移除这行调试输出
-                                // console.log("logTextArea reference set")
+                            }
+                            
+                            // 添加带行号的日志函数
+                            function appendLogWithLineNumber(message) {
+                                var logLine = String(lineNumber).padStart(3, '0') + ": " + message
+                                append(logLine)
+                                lineNumber++
+                                // 自动滚动到底部
+                                Qt.callLater(function() {
+                                    cursorPosition = length
+                                })
+                            }
+                            
+                            // 清空日志并重置行号
+                            function clearLog() {
+                                clear()
+                                lineNumber = 1
                             }
                             
                             text: "Please configure connection settings and click Start to begin latency checking.\n"
@@ -295,18 +381,24 @@ ApplicationWindow {
                 Connections {
                     target: locationService
                     function onCurrentLocationChanged(location) {
+                        // 无论Auto Location是否勾选，都输出日志
+                        // if (location !== undefined && location !== null && location !== "Unknown" && location !== "") {
+                        //     logger.logMessage("Location detected: " + location)
+                        // }
+                        
+                        // 只有勾选Auto Location时才自动填充到界面
                         if (autoLocationCheck.checked && location !== undefined && location !== null && location !== "Unknown" && location !== "") {
                             locationField.text = location
                             configManager.location = location
-                            logger.logMessage("Location updated to: " + location)
+                            // logger.logMessage("Auto location updated to: " + location)
                         } else if (location === undefined || location === null) {
-                            logger.logMessage("Location detection returned invalid value")
+                            // logger.logMessage("Location detection returned invalid value")
                             autoLocationCheck.checked = false
                         }
                     }
                     
                     function onLocationUpdateFailed(error) {
-                        logger.logMessage("Location detection failed: " + error)
+                        // logger.logMessage("Location detection failed: " + error)
                         autoLocationCheck.checked = false
                     }
                 }
@@ -472,7 +564,14 @@ ApplicationWindow {
         x: 0
         y: window.height
         width: window.width
-
+        
+        // 使用缩放变换
+        // transform: Scale {
+        //     xScale: 1.0
+        //     yScale: 0.6  // 缩放到60%高度
+        //     origin.x: inputPanel.width / 2
+        //     origin.y: inputPanel.height+2
+        // }
         states: State {
             name: "visible"
             when: inputPanel.active
@@ -500,14 +599,31 @@ ApplicationWindow {
     // Keep the Connections block but move it to the proper location within the main ApplicationWindow
     Connections {
         target: networkManager
+        function onConnectedChanged() {
+            if (!networkManager.connected) {
+                isLoggedIn = false
+                isLoggingIn = false  // 合并：添加isLoggingIn重置
+                // 添加：网络断开时重置运行状态
+                if (isRunning) {
+                    latencyChecker.stopChecking()
+                    isRunning = false
+                    // logger.logMessage("✗ Network disconnected, stopping latency check")
+                }
+            }
+        }
+        
         function onLoginResult(success, message) {
-            isLoggingIn = false
             if (success) {
                 isLoggedIn = true
-                //logger.logMessage("Login successful: " + message)
+                logger.logMessage("✓ Login successful: " + message)
             } else {
                 isLoggedIn = false
-                //logger.logMessage("Login failed: " + message)
+                // 添加：登录失败时确保重置状态
+                if (isRunning) {
+                    latencyChecker.stopChecking()
+                    isRunning = false
+                }
+                logger.logMessage("✗ Login failed: " + message)
                 // Clear password field on login failure
                 if (typeof mainPasswordField !== 'undefined') {
                     mainPasswordField.text = ""
@@ -515,12 +631,13 @@ ApplicationWindow {
             }
         }
         
-        function onConnectedChanged() {
-            if (!networkManager.connected) {
-                isLoggedIn = false
-                isLoggingIn = false
-            }
-        }
+        // 删除重复的onConnectedChanged函数定义
+        // function onConnectedChanged() {
+        //     if (!networkManager.connected) {
+        //         isLoggedIn = false
+        //         isLoggingIn = false
+        //     }
+        // }
     }
 
     // 删除这些重复的组件（第518-620行）
@@ -545,13 +662,13 @@ ApplicationWindow {
         target: networkManager
         function onIpListReceived(ipList) {
             // 收到服务器列表后启动延迟检测
-            if (stackView.currentItem && stackView.currentItem.logArea) {
-                stackView.currentItem.logArea.append("✓ Data retrieval successful: Received " + ipList.length + " servers")
-                stackView.currentItem.logArea.append("→ Starting latency detection...")
-            }
-            // 添加logger日志
-            logger.logMessage("✓ Received " + ipList.length + " servers from server")
-            logger.logMessage("→ Starting latency detection with " + configManager.threadCount + " threads")
+            // if (stackView.currentItem && stackView.currentItem.logArea) {
+            //     stackView.currentItem.logArea.append("✓ Data retrieval successful: Received " + ipList.length + " servers")
+            //     stackView.currentItem.logArea.append("→ Starting latency detection...")
+            // }
+            // // 添加logger日志
+            // logger.logMessage("✓ Received " + ipList.length + " servers from server")
+            // logger.logMessage("→ Starting latency detection with " + configManager.threadCount + " threads")
             
             latencyChecker.startChecking(ipList, configManager.threadCount)
         }
@@ -571,95 +688,106 @@ ApplicationWindow {
         target: networkManager
         // 添加测试连接结果处理函数
         function onTestConnectionResult(message, success) {
-            if (stackView.currentItem && stackView.currentItem.logArea) {
-                var statusMsg = success ? "✓ Successfully connected to server" : "✗ Failed to connect to server: " + message
-                stackView.currentItem.logArea.append(statusMsg)
-            }
+            // 更新状态变量以显示在状态条中
+            testConnectionStatus = message
+            testConnectionSuccess = success
+            
+            // 启动定时器清除状态
+            statusTimer.restart()
+            
+            // if (stackView.currentItem && stackView.currentItem.logArea) {
+            //     var statusMsg = success ? "✓ Successfully connected to server" : "✗ Failed to connect to server: " + message
+            //     stackView.currentItem.logArea.append(statusMsg)
+            // }
         }
 
         // 添加报告上传结果处理（需要在NetworkManager中添加相应信号）
-        function onReportUploadResult(success, reportId, message) {
-            if (stackView.currentItem && stackView.currentItem.logArea) {
-                if (success && reportId) {
-                    stackView.currentItem.logArea.append("✓ Report upload successful, Report ID: " + reportId)
-                } else {
-                    stackView.currentItem.logArea.append("✗ Report upload failed: " + message)
-                }
-            }
+        // function onReportUploadResult(success, reportId, message) {
+        //     if (stackView.currentItem && stackView.currentItem.logArea) {
+        //         if (success && reportId) {
+        //             stackView.currentItem.logArea.append("✓ Report upload successful, Report ID: " + reportId)
+        //         } else {
+        //             stackView.currentItem.logArea.append("✗ Report upload failed: " + message)
+        //         }
+        //     }
             
-            // 添加logger日志
-            if (success && reportId) {
-                logger.logMessage("✓ Report upload successful, Report ID: " + reportId)
-                logger.logMessage("=== LATENCY CHECK COMPLETED ===")
-            } else {
-                logger.logMessage("✗ Report upload failed: " + message)
-            }
-        }
+        //     // 添加logger日志
+        //     if (success && reportId) {
+        //         logger.logMessage("✓ Report upload successful, Report ID: " + reportId)
+        //         logger.logMessage("=== LATENCY CHECK COMPLETED ===")
+        //     } else {
+        //         logger.logMessage("✗ Report upload failed: " + message)
+        //     }
+        // }
     }
 
     Connections {
         target: logger
         function onLogMessageAdded(message) {
-            // 添加安全检查，避免在UI未初始化时处理信号
+            // 删除所有日志显示逻辑
             if (stackView && stackView.currentItem && stackView.currentItem.logArea) {
                 stackView.currentItem.logArea.append(message)
-            } else {
-                // 如果UI未准备好，暂存消息或输出到控制台
-                console.log("Logger:", message)
             }
         }
     }
     
-    // 修改Component.onCompleted，添加自动连接逻辑
+    // Keep only one Component.onCompleted block and combine all logic
     Component.onCompleted: {
+        // Original startup logic
         Qt.callLater(function() {
             try {
                 var initialLocation = configManager.location || "Application Startup"
                 logger.startNewSession(initialLocation)
                 logger.logMessage("LatCheck v2.0 started")
-                
-                // 自动连接到服务器
-                if (configManager.serverIp && configManager.serverPort > 0) {
-                    networkManager.connectToServer(
-                        configManager.serverIp,
-                        configManager.serverPort,
-                        "certs/client.crt",
-                        "certs/client.key",
-                        true
-                    )
-                }
             } catch (error) {
                 console.log("Startup error:", error)
             }
         })
+        
+        // Virtual keyboard language setting
+        if (typeof VirtualKeyboardSettings !== 'undefined') {
+            VirtualKeyboardSettings.locale = "en_US"
+        }
     }
 
     Connections {
         target: latencyChecker
-        function onLatencyResult(serverId, latency) {
-            if (stackView.currentItem && stackView.currentItem.logArea) {
-                if (latency >= 0) {
-                    stackView.currentItem.logArea.append("→ Node ID " + serverId + " latency: " + latency + "ms")
-                } else {
-                    stackView.currentItem.logArea.append("✗ Node ID " + serverId + " latency detection failed")
-                }
-            }
-        }
-        
+        // 移除延时结果的日志输出
+        // function onLatencyResult(serverId, ipAddr, latency) {
+        //     if (stackView.currentItem && stackView.currentItem.logTextArea) {
+        //         if (latency >= 0) {
+        //             stackView.currentItem.logTextArea.appendLogWithLineNumber("→ Node ID " + serverId + " latency: " + latency + "ms")
+        //         } else {
+        //             stackView.currentItem.logTextArea.appendLogWithLineNumber("✗ Node ID " + serverId + " latency detection failed")
+        //         }
+        //     }
+        // }
         function onCheckingFinished(results) {
-            if (stackView.currentItem && stackView.currentItem.logArea) {
-                stackView.currentItem.logArea.append("✓ Latency detection completed")
-                stackView.currentItem.logArea.append("→ Uploading report...")
-            }
+            // 添加：确保检测完成后重置状态
+            isRunning = false
+            
+            // if (stackView.currentItem && stackView.currentItem.logArea) {
+            //     stackView.currentItem.logArea.append("✓ Latency detection completed")
+            //     stackView.currentItem.logArea.append("→ Uploading report...")
+            // }
             
             // 自动上传报告
             if (isLoggedIn && results.length > 0) {
                 var location = locationService.getCurrentLocation()
                 networkManager.sendReportRequest(location, results)
             } else {
-                logger.logMessage("✗ Cannot upload report: not logged in or no results")
+                // logger.logMessage("✗ Cannot upload report: not logged in or no results")
+            }
+        }
+        
+        // 添加：监听running状态变化
+        function onRunningChanged() {
+            // 同步latencyChecker的running状态到isRunning
+            if (isRunning !== latencyChecker.running) {
+                isRunning = latencyChecker.running
             }
         }
     }
 
 }
+
