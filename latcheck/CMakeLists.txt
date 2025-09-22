@@ -21,6 +21,7 @@ qt_add_executable(applatcheck
     logger.h
     locationservice.cpp
     locationservice.h
+    message_protocol.cpp
 )
 
 qt_add_qml_module(applatcheck

@@ -454,8 +454,6 @@ QString ConfigManager::generateSalt()
     return salt.toHex();
 }
 
-
-
 bool ConfigManager::verifyPassword(const QString &password)
 {
     if (m_passwordHash.isEmpty()) {

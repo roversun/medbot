@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
     qputenv("QT_IM_MODULE", QByteArray("qtvirtualkeyboard"));
 
     QGuiApplication app(argc, argv);
-    
+
     // Set application properties
     app.setApplicationName("LatCheck");
     app.setApplicationVersion("2.0");
@@ -27,34 +27,35 @@ int main(int argc, char *argv[])
 
     // Create and expose global instances BEFORE creating engine
     ConfigManager configManager;
-    NetworkManager networkManager;
+    NetworkManager networkManager(nullptr, &configManager); // 传递configManager参数
     LatencyChecker latencyChecker;
     LocationService locationService;
     Logger logger;
-    
+
     // Set up connections between objects
     locationService.setLogger(&logger);
-    
+
     QQmlApplicationEngine engine;
-    
+
     // Register singletons
     qmlRegisterSingletonInstance("LatCheck", 2, 0, "LocationService", &locationService);
     qmlRegisterSingletonInstance("LatCheck", 2, 0, "Logger", &logger);
-    
+
     // Set context properties BEFORE loading QML
     engine.rootContext()->setContextProperty("configManager", &configManager);
     engine.rootContext()->setContextProperty("networkManager", &networkManager);
     engine.rootContext()->setContextProperty("latencyChecker", &latencyChecker);
     engine.rootContext()->setContextProperty("logger", &logger);
     engine.rootContext()->setContextProperty("locationService", &locationService);
-    
+
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
         &app,
-        []() { QCoreApplication::exit(-1); },
+        []()
+        { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
-        
+
     // Load QML AFTER setting context properties
     engine.loadFromModule("latcheck", "Main");
 
