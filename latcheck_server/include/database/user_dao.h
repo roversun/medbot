@@ -13,13 +13,17 @@ class UserDAO : public BaseDAO
 public:
     explicit UserDAO(QObject *parent = nullptr);
     
-    // 用户认证
-    User authenticateUser(const QString& username, const QString& password);
+    // 添加printUser方法声明
+    void printUser(User& user);
     
-    // 创建用户
-    ErrorCode createUser(const User& user);
+    // 用户认证 - 需要传入已哈希的密码和盐值
+    User authenticateUser(const QString& username, const QString& passwordHash, const QString& salt);
     
-    // 更新用户信息
+    // 创建用户 - 需要传入已哈希的密码和盐值
+    ErrorCode createUser(const QString& username, const QString& passwordHash, const QString& salt, 
+                        UserRole role, UserStatus status = UserStatus::Active);
+    
+    // 更新用户信息（不包括密码）
     ErrorCode updateUser(const User& user);
     
     // 删除用户
@@ -28,14 +32,17 @@ public:
     // 根据ID获取用户
     User getUserById(qint64 userId);
     
-    // 根据用户名获取用户
+    // 根据用户名获取用户（包含密码哈希和盐值用于验证）
     User getUserByUsername(const QString& username);
+    
+    // 获取用户基本信息（不包含密码相关信息）
+    User getUserBasicInfo(const QString& username);
     
     // 获取所有用户
     QList<User> getAllUsers();
     
-    // 更新用户密码
-    ErrorCode updateUserPassword(qint64 userId, const QString& newPassword);
+    // 更新用户密码 - 需要传入新的哈希密码和盐值
+    ErrorCode updateUserPassword(qint64 userId, const QString& newPasswordHash, const QString& newSalt);
     
     // 更新用户状态
     ErrorCode updateUserStatus(qint64 userId, UserStatus status);
@@ -54,15 +61,7 @@ private:
     User buildUserFromQuery(const QSqlQuery& query);
     
     // 验证用户数据
-    bool validateUserData(const User& user);
-    
-    // 生成密码哈希
-    QString generatePasswordHash(const QString& password, const QString& salt);
-    
-    // 生成盐值
-    QString generateSalt();
-    
-    // 验证密码
-    bool verifyPassword(const QString& password, const QString& hash, const QString& salt);
+    bool validateUserData(const QString& userName);
 };
+
 #endif // USERDAO_H

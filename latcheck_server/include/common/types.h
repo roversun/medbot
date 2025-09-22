@@ -18,14 +18,30 @@ enum class UserStatus {
     Deleted
 };
 
-// 用户角色枚举
+// 用户角色枚举 - 移到这里，在User结构体之前
 enum class UserRole {
-    User,
-    Admin,
-    SuperAdmin
+    Admin,           // 管理员
+    ReportUploader,  // 报告上传者
+    ReportViewer     // 报告查询者
 };
 
-// 报告状态枚举
+// 用户结构
+struct User {
+    qint64 id = 0;
+    QString userName;
+    QString passwordHash;
+    QString salt; 
+    QString email;
+    UserRole role = UserRole::ReportUploader;  // 默认为报告上传者
+    UserStatus status = UserStatus::Inactive;  // 改回 UserStatus 类型
+    QDateTime createdAt;
+    QDateTime updatedAt;
+    QDateTime lastLoginAt;
+    int loginAttempts = 0;
+    QDateTime lockedUntil;
+};
+
+// 报告状态枚举 - 原UserRole的位置
 enum class ReportStatus {
     Pending,
     Processing,
@@ -43,21 +59,6 @@ struct ReportDetail {
     QString status;
     QDateTime testTime;
     QString additionalInfo;
-};
-
-// 用户结构
-struct User {
-    qint64 id = 0;
-    QString userName;
-    QString password;
-    QString email;
-    UserRole role = UserRole::User;
-    UserStatus status = UserStatus::Active;
-    QDateTime createdAt;
-    QDateTime updatedAt;
-    QDateTime lastLoginAt;
-    int loginAttempts = 0;
-    QDateTime lockedUntil;
 };
 
 // 报告结构

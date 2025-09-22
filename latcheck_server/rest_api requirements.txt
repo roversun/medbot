@@ -1,0 +1,179 @@
+latcheck_rest_server v1.0: 
+一、说明
+本程序是TLS服务器，Qt/C++实现，无UI，使用MySQL数据库，编译和运行在Ubuntu服务器下。
+主要功能是实现客户端远程登录，存储TLS客户端上传检测报告，并提供HTTPS REST查询接口查询任意两个地点之间的延时信息。
+
+二、数据库设计：
+数据库：latency_check
+
+表设计：
+
+1. account表：存储登录账号
+   - user_name VARCHAR(32) PRIMARY KEY NOT NULL COMMENT '用户名，主键'
+   - password_hash VARCHAR(128) NOT NULL COMMENT '密码SHA-256哈希值'
+   - nick_name VARCHAR(32) DEFAULT '' COMMENT '昵称'
+   - tel VARCHAR(20) DEFAULT NULL COMMENT '手机号，可选'
+   - email VARCHAR(100) DEFAULT NULL COMMENT '邮箱，可选'
+   - country VARCHAR(50) DEFAULT '' COMMENT '国家'
+   - province VARCHAR(50) DEFAULT '' COMMENT '省份'
+   - city VARCHAR(50) DEFAULT '' COMMENT '城市'
+   - description VARCHAR(128) DEFAULT '' COMMENT '用户描述'
+   - level INT DEFAULT 0 COMMENT '权限级别：0-禁用，1-报告上传用户，2-报告查询用户，3-管理员'
+   - created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
+   - updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+   - INDEX idx_level (level)
+
+2. test_server表：存储全球测试云服务器位置信息
+   - server_id INT PRIMARY KEY AUTO_INCREMENT COMMENT '服务器ID，主键'
+   - location VARCHAR(64) UNIQUE NOT NULL COMMENT '位置信息，唯一'
+   - ip_addr INT UNSIGNED NOT NULL COMMENT 'IPv4地址整数值'
+   - update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+   - active BOOLEAN DEFAULT TRUE COMMENT '是否活跃'
+   - INDEX idx_location (location)
+   - INDEX idx_active (active)
+
+3. latcheck_report表：存储客户端上传的报告基本信息
+   - report_id INT PRIMARY KEY AUTO_INCREMENT COMMENT '报告ID，主键'
+   - check_location VARCHAR(64) NOT NULL COMMENT '客户端检测位置信息'
+   - user_name VARCHAR(32) NOT NULL COMMENT '创建者账号名称'
+   - created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
+   - FOREIGN KEY (user_name) REFERENCES account(user_name) ON DELETE CASCADE
+   - INDEX idx_check_location (check_location)
+   - INDEX idx_user_name (user_name)
+   - INDEX idx_created_time (created_time)
+
+4. report_detail表：存储报告包含的有效检查记录
+   - record_id INT PRIMARY KEY AUTO_INCREMENT COMMENT '记录ID，主键'
+   - report_id INT NOT NULL COMMENT '对应的报告ID'
+   - server_id INT NOT NULL COMMENT '对应的服务器ID'
+   - ip_addr INT UNSIGNED NOT NULL COMMENT 'IP地址整数值（历史记录）'
+   - latency DECIMAL(8,2) NOT NULL COMMENT '延时值（毫秒）'
+   - updated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间'
+   - FOREIGN KEY (report_id) REFERENCES latcheck_report(report_id) ON DELETE CASCADE
+   - INDEX idx_report_id (report_id)
+   - INDEX idx_server_id (server_id)
+
+5. calculated_latencies表：存储计算的地点间延时
+   - id INT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID'
+   - report1 INT NOT NULL COMMENT '较小的report_id'
+   - report2 INT NOT NULL COMMENT '较大的report_id'
+   - latency DECIMAL(8,2) NOT NULL COMMENT '延时值（毫秒）'
+   - server_id INT NOT NULL COMMENT '服务器ID'
+   - created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'
+   - INDEX idx_reports (report1, report2)
+   - INDEX idx_server_id (server_id)
+   - INDEX idx_created_time (created_time)
+
+三. API接口：
+所有操作都需要包含管理员token或用户自己的token。根据post和get不同，采用最佳实践放在不同位置。
+   POST /api/login
+   输入：{"user_name": "xxx", "password": "xxx"}
+   返回：{"success": true, "token": "xxx", "expires_in": 86400}
+
+   POST /api/user/create
+   输入：用户信息JSON
+   返回：操作结果
+
+   POST /api/user/delete
+   输入：用户信息JSON
+   返回：操作结果
+
+   POST /api/user/modify
+   输入：用户信息JSON
+   返回：操作结果
+
+   get /api/user/query   
+   输入：用户信息JSON
+   Authrorization:{user_token}
+   返回：操作结果
+
+   get /api/user/query/{user_name}
+   返回：操作结果
+
+   get /api/latencies/all
+   返回：所有calculated_latencies数据的JSON列表
+
+   get /api/latency?location1=xxx&location2=xxx
+   返回：指定位置间的最新延时数据
+
+   get /api/report/{report_id}
+   返回：指定报告的基本信息
+
+   get /api/report/{report_id}/detail
+   返回：指定报告的详细数据
+
+   get /api/reports
+   返回：所有报告列表
+四、错误码定义
+
+系统错误码：
+- SUCCESS = 0: 成功
+- ERR_INVALID_USER = 1001: 用户名或密码错误
+- ERR_USER_DISABLED = 1002: 用户被禁用
+- ERR_PERMISSION_DENIED = 1003: 权限不足
+- ERR_DATABASE_ERROR = 2001: 数据库错误
+- ERR_INVALID_DATA = 3001: 数据格式错误
+- ERR_SERVER_INTERNAL = 5001: 服务器内部错误
+
+五、
+
+1. 日志记录：实现分级日志（DEBUG、INFO、WARN、ERROR），按天轮转，保留30天历史日志。
+
+2. 并发支持：支持多客户端并发连接，每个客户端独立会话状态。
+
+3. 数据库连接池：初始连接数5，最大连接数20，连接超时30秒。
+
+4. 配置文件：使用JSON格式配置文件config.json。
+
+六、软件功能需求-账号管理
+
+1. 账号注册：当数据库无任何账号时，第一个注册的账号自动设为管理员（level=3）。普通账号注册默认是disable状态，需要admin账号approve。
+
+2. 密码要求：最少8位，包含字母和数字，使用SHA-256哈希+Salt存储。
+
+3. 权限控制：
+   - 管理员（level=3）：完整的账号增删改查权限
+   - 普通用户（level=1,2）：只能修改自己的账号信息，用户名不可更改
+
+4. 账号状态：支持禁用账号（level=0），禁用后无法登录。
+5. 账号管理：增删改查
+
+七、软件功能需求-HTTPS REST服务器（将在其它项目中实现）
+
+1. 安全认证：所有API需要Bearer Token认证，Token有效期24小时。
+
+2. 权限控制：
+   - level=1用户：只能上传报告
+   - level=2用户：可查询延时数据
+   - level=3用户：完整权限
+
+
+八、安全机制
+
+1. TLS证书：支持自动续期，证书过期前30天告警。
+
+2. 访问控制：IP白名单支持，失败登录次数限制（5次/小时）。
+
+3. 数据加密：敏感数据传输加密，数据库连接加密。
+
+4. 审计日志：记录所有关键操作，包括登录、数据修改等。
+
+九、运维支持
+
+1. 性能监控：
+   - 连接数监控
+   - 数据库性能监控
+   - 内存和CPU使用率监控
+   - 响应时间监控
+
+2. 告警机制：
+   - 服务异常告警
+   - 资源使用率告警
+   - 证书过期告警
+
+3. 数据备份：
+   - 每日自动备份数据库
+   - 保留7天备份文件
+   - 支持手动备份和恢复
+
+4. 健康检查：提供/health端点，返回服务状态。

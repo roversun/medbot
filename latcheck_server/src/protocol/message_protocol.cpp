@@ -10,52 +10,35 @@
 MessageProtocol::MessageProtocol()
 {
 }
-
 QByteArray MessageProtocol::serializeHeader(const MessageHeader& header)
 {
     QByteArray data;
     QDataStream stream(&data, QIODevice::WriteOnly);
     stream.setByteOrder(QDataStream::BigEndian);
     
-    stream << hostToNetwork(header.msgType);
-    stream << hostToNetwork(header.dataLength);
+    // 直接写入，让QDataStream处理字节序
+    stream << header.msgType;
+    stream << header.dataLength;
     
     return data;
 }
-
 MessageHeader MessageProtocol::deserializeHeader(const QByteArray& data)
 {
     MessageHeader header;
-    
     if (data.size() < 8) {
-        Logger::instance()->error("Invalid header size", "MessageProtocol");
-        return header;
+        Logger::instance()->error("MessageProtocol", "Invalid header size");
+        return header; 
     }
     
-    QDataStream stream(data);
-    stream.setByteOrder(QDataStream::BigEndian);
-    
+    // 直接从内存读取并使用qFromBigEndian转换
     quint32 msgType, dataLength;
-    stream >> msgType >> dataLength;
+    memcpy(&msgType, data.constData(), sizeof(quint32));
+    memcpy(&dataLength, data.constData() + sizeof(quint32), sizeof(quint32));
     
-    header.msgType = networkToHost(msgType);
-    header.dataLength = networkToHost(dataLength);
+    header.msgType = qFromBigEndian(msgType);
+    header.dataLength = qFromBigEndian(dataLength);
     
     return header;
-}
-
-QByteArray MessageProtocol::serializeLoginRequest(const QString& userName, const QString& passwordHash)
-{
-    LoginRequestData data;
-    
-    // 复制用户名和密码哈希到固定长度字段
-    strncpy(data.userName, userName.toUtf8().constData(), sizeof(data.userName) - 1);
-    strncpy(data.passwordHash, passwordHash.toUtf8().constData(), sizeof(data.passwordHash) - 1);
-    
-    QByteArray result;
-    result.append(reinterpret_cast<const char*>(&data), sizeof(data));
-    
-    return result;
 }
 
 LoginRequestData MessageProtocol::deserializeLoginRequest(const QByteArray& data)
@@ -71,7 +54,7 @@ LoginRequestData MessageProtocol::deserializeLoginRequest(const QByteArray& data
     
     // 确保字符串以null结尾
     loginData.userName[sizeof(loginData.userName) - 1] = '\0';
-    loginData.passwordHash[sizeof(loginData.passwordHash) - 1] = '\0';
+    loginData.password[sizeof(loginData.password) - 1] = '\0';
     
     return loginData;
 }
@@ -95,7 +78,8 @@ ListResponseData MessageProtocol::deserializeListResponse(const QByteArray& data
 {
     ListResponseData listData;
     
-    if (data.size() < sizeof(quint32)) {
+    // 修复第98行的警告
+    if (static_cast<size_t>(data.size()) < sizeof(quint32)) {
         Logger::instance()->error("Invalid list response data size", "MessageProtocol");
         return listData;
     }
@@ -157,7 +141,8 @@ ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray& da
 {
     ReportRequestData reportData;
     
-    if (data.size() < sizeof(quint32) + sizeof(reportData.recordCount)) {
+    // 修复第160行的警告
+    if (static_cast<size_t>(data.size()) < sizeof(quint32) + sizeof(reportData.recordCount)) {
         Logger::instance()->error("Invalid report request data size", "MessageProtocol");
         return reportData;
     }
@@ -169,7 +154,8 @@ ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray& da
     ptr += sizeof(reportData.locationLength);
     
     // 验证数据大小
-    if (data.size() < sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount)) {
+    // 修复第174行的警告
+    if (static_cast<size_t>(data.size()) < sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount)) {
         Logger::instance()->error("Invalid report request data size for location", "MessageProtocol");
         return reportData;
     }
@@ -207,19 +193,6 @@ ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray& da
     return reportData;
 }
 
-QByteArray MessageProtocol::createSimpleResponse(MessageType type, ErrorCode errorCode)
-{
-    MessageHeader header(type, sizeof(quint32));
-    
-    QByteArray result;
-    result.append(serializeHeader(header));
-    
-    quint32 code = static_cast<quint32>(errorCode);
-    result.append(reinterpret_cast<const char*>(&code), sizeof(code));
-    
-    return result;
-}
-
 bool MessageProtocol::validateHeader(const MessageHeader& header)
 {
     // 验证消息类型
@@ -249,14 +222,4 @@ QString MessageProtocol::getMessageTypeString(MessageType type)
         case MessageType::REPORT_FAIL: return "REPORT_FAIL";
         default: return "UNKNOWN";
     }
-}
-
-quint32 MessageProtocol::hostToNetwork(quint32 value)
-{
-    return qToBigEndian(value);
-}
-
-quint32 MessageProtocol::networkToHost(quint32 value)
-{
-    return qFromBigEndian(value);
 }

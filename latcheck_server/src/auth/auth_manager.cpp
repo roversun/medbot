@@ -6,6 +6,7 @@
 #include <QUuid>
 #include <QCryptographicHash>
 #include <QMutexLocker>
+#include "auth/password_utils.h"
 
 
 
@@ -37,22 +38,22 @@ QString AuthManager::authenticateUser(const QString& username, const QString& pa
         return QString();
     }
     
-    // 验证用户凭据
+    // 获取用户信息
     User user = user_dao_->getUserByUsername(username);
-    if (user.id == 0 || !verifyPassword(password, user.password, "")) {
+    if (user.id == 0) {
         logger_->warning(QString("Failed login attempt for user: %1 from IP: %2").arg(username, clientIP));
         recordLoginAttempt(username, clientIP, false);
         return QString();
     }
     
-    // 检查用户状态
-    if (user.status != UserStatus::Active) {
-        logger_->warning(QString("Login attempt for inactive user: %1").arg(username));
+    // 使用PasswordUtils验证密码
+    if (!PasswordUtils::verifyPassword(password, user.passwordHash, user.salt)) {
+        logger_->warning(QString("Failed login attempt for user: %1 from IP: %2").arg(username, clientIP));
         recordLoginAttempt(username, clientIP, false);
         return QString();
     }
     
-    // 创建会话
+    // 验证成功，创建会话
     QString sessionToken = generateSessionToken();
     UserSession session;
     session.username = username;
@@ -209,32 +210,6 @@ bool AuthManager::checkRateLimit(const QString& clientIP) {
     // 记录当前请求
     requests.append(now);
     return true;
-}
-
-QString AuthManager::hashPassword(const QString& password, const QString& salt) {
-    QString saltToUse = salt.isEmpty() ? generateSalt() : salt;
-    QByteArray data = (password + saltToUse).toUtf8();
-    
-    // 使用SHA-256进行多轮哈希
-    QByteArray hash = data;
-    for (int i = 0; i < 10000; ++i) {
-        hash = QCryptographicHash::hash(hash, QCryptographicHash::Sha256);
-    }
-    
-    return hash.toHex();
-}
-
-QString AuthManager::generateSalt() {
-    QByteArray salt;
-    for (int i = 0; i < 32; ++i) {
-        salt.append(static_cast<char>(QRandomGenerator::global()->bounded(256)));
-    }
-    return salt.toHex();
-}
-
-bool AuthManager::verifyPassword(const QString& password, const QString& hashedPassword, const QString& salt) {
-    QString computedHash = hashPassword(password, salt);
-    return computedHash == hashedPassword;
 }
 
 QString AuthManager::generateSessionToken() {

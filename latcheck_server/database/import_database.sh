@@ -171,11 +171,11 @@ main() {
     setup_database_user
     
     log_info "数据库导入完成！"
-    log_warn "重要提示:"
-    echo "1. 默认管理员用户名: admin"
-    echo "2. 默认管理员密码: admin123"
-    echo "3. 请在生产环境中立即修改默认密码"
-    echo "4. 建议定期备份数据库"
+    # log_warn "重要提示:"
+    # echo "1. 默认管理员用户名: admin"
+    # echo "2. 默认管理员密码: Medbot8848"
+    # echo "3. 请在生产环境中立即修改默认密码"
+    # echo "4. 建议定期备份数据库"
 }
 
 # 执行主函数

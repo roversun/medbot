@@ -45,8 +45,9 @@ struct ClientSession {
     QByteArray pendingData;
     QByteArray buffer;          // 添加缓冲区
     bool isAuthenticated;       // 添加认证状态
+    QTimer* loginTimer;         // 添加登录超时定时器
     
-    ClientSession() : socket(nullptr), state(ClientState::Connected), isAuthenticated(false) {
+    ClientSession() : socket(nullptr), state(ClientState::Connected), isAuthenticated(false), loginTimer(nullptr) {
         connectTime = QDateTime::currentDateTime();
         lastActiveTime = connectTime;
     }
@@ -75,6 +76,8 @@ public:
     void setUserDAO(UserDAO* userDAO);
     void setReportDAO(ReportDAO* reportDAO);
 
+    void setAuthManager(AuthManager* authManager);
+
 protected:
     // 重写新连接处理
     void incomingConnection(qintptr socketDescriptor) override;
@@ -94,6 +97,8 @@ private slots:
     
     // 清理定时器
     void onCleanupTimer();
+
+ 
 
 private:
     // SSL初始化
@@ -132,6 +137,10 @@ private:
     // 更新客户端活动时间
     void updateClientActivity(ClientSession* session);
 
+    // 获取SSL协议可读名称
+    QString getSslProtocolName(QSslSocket* socket);
+
+
 private:
     ConfigManager* config_manager_;
     UserDAO* user_dao_;
@@ -147,6 +156,8 @@ private:
     int max_connections_;
     int connection_timeout_;  // 秒
     int auth_timeout_;        // 秒
+
+    AuthManager* auth_manager_;  
 };
 
 #endif // TLSSERVER_H

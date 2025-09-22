@@ -39,6 +39,7 @@ set(SOURCES
     src/protocol/message_protocol.cpp
     src/server/tls_server.cpp
     src/auth/auth_manager.cpp
+    src/auth/password_utils.cpp  # 添加这一行
 )
 
 # 头文件 - 移除REST API头文件

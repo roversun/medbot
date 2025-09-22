@@ -34,11 +34,11 @@ struct MessageHeader {
 // 登录请求数据
 struct LoginRequestData {
     char userName[32];      // 用户名（32字节）
-    char passwordHash[32];  // 密码哈希（32字节）
+    char password[32];  // 密码哈希（32字节）
     
     LoginRequestData() {
         memset(userName, 0, sizeof(userName));
-        memset(passwordHash, 0, sizeof(passwordHash));
+        memset(password, 0, sizeof(password));
     }
 };
 
@@ -91,7 +91,7 @@ public:
     static MessageHeader deserializeHeader(const QByteArray& data);
     
     // 序列化登录请求
-    static QByteArray serializeLoginRequest(const QString& userName, const QString& passwordHash);
+    // static QByteArray serializeLoginRequest(const QString& userName, const QString& passwordHash);
     
     // 反序列化登录请求
     static LoginRequestData deserializeLoginRequest(const QByteArray& data);
@@ -108,19 +108,11 @@ public:
     // 反序列化报告上传请求
     static ReportRequestData deserializeReportRequest(const QByteArray& data);
     
-    // 创建简单响应消息（LOGIN_OK, LOGIN_FAIL, REPORT_OK, REPORT_FAIL）
-    static QByteArray createSimpleResponse(MessageType type, ErrorCode errorCode = ErrorCode::Success);
-    
     // 验证消息头
     static bool validateHeader(const MessageHeader& header);
     
     // 获取消息类型字符串
     static QString getMessageTypeString(MessageType type);
-    
-private:
-    // 字节序转换辅助函数
-    static quint32 hostToNetwork(quint32 value);
-    static quint32 networkToHost(quint32 value);
 };
 
 #endif // MESSAGEPROTOCOL_H

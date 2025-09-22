@@ -2,6 +2,11 @@
 CREATE DATABASE IF NOT EXISTS latcheck CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE latcheck;
 
+-- 删除现有的表（按照外键依赖关系顺序删除）
+DROP TABLE IF EXISTS report_details;
+DROP TABLE IF EXISTS latcheck_report;
+DROP TABLE IF EXISTS users;
+
 -- 创建用户表
 CREATE TABLE IF NOT EXISTS users (
     user_id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -9,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     salt VARCHAR(255) NOT NULL,
     email VARCHAR(100),
-    role TINYINT NOT NULL DEFAULT 0 COMMENT '0=User, 1=Admin, 2=SuperAdmin',
+    role TINYINT NOT NULL DEFAULT 2 COMMENT '0=Admin, 1=ReportUploader, 2=ReportViewer',
     status TINYINT NOT NULL DEFAULT 0 COMMENT '0=Active, 1=Inactive, 2=Suspended, 3=Deleted',
     login_attempts INT DEFAULT 0,
     locked_until DATETIME NULL,
@@ -51,13 +56,13 @@ CREATE TABLE IF NOT EXISTS report_details (
     FOREIGN KEY (report_id) REFERENCES latcheck_report(report_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 插入默认管理员用户（密码：admin123，请在生产环境中修改）
+-- 插入默认管理员用户（密码：Medbot8848）
 INSERT INTO users (username, password_hash, salt, role, status) VALUES 
 ('admin', 
- SHA2(CONCAT('admin123', 'default_salt'), 256), 
- 'default_salt', 
- 2, 
- 0
+ SHA2(CONCAT('Medbot8848', 'initial_admin_salt_2025'), 256), 
+ 'initial_admin_salt_2025', 
+ 0,  -- Admin角色
+ 0 -- 启用状态（对应UserStatus::Active）
 ) ON DUPLICATE KEY UPDATE username=username;
 
 -- 创建数据库用户（可选）

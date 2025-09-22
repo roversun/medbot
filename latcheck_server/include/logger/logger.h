@@ -72,17 +72,17 @@ private slots:
 private:
     // 成员变量
     LogConfig config_;
-    LogLevel log_level_;  // 修改名称匹配实现文件
+    LogLevel log_level_;
     QString log_directory_;
     qint64 max_file_size_;
     int max_files_;
     qint64 current_file_size_;
     
-    QFile log_file_;      // 修改为对象而非指针
-    QFile audit_file_;    // 添加审计文件
+    QFile log_file_;
+    QFile audit_file_;
     QTextStream* log_stream_;
     QMutex log_mutex_;
-    QMutex audit_mutex_;  // 添加审计日志互斥锁
+    QMutex audit_mutex_;
     
     // 私有方法
     void initializeLogDirectory();

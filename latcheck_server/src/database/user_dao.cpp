@@ -3,23 +3,22 @@
 #include "logger/logger.h"
 #include "common/error_codes.h"
 
-#include <QCryptographicHash>
-#include <QUuid>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QRegularExpression>
+#include <QDebug>
 
 UserDAO::UserDAO(QObject *parent)
     : BaseDAO(parent)
 {
 }
 
-User UserDAO::authenticateUser(const QString& username, const QString& password)
+User UserDAO::authenticateUser(const QString& username, const QString& passwordHash, const QString& salt)
 {
     User user;
     
-    if (username.isEmpty() || password.isEmpty()) {
-        Logger::instance()->warning("Empty username or password for authentication", "USER_DAO");
+    if (username.isEmpty() || passwordHash.isEmpty() || salt.isEmpty()) {
+        Logger::instance()->warning("Empty parameters for authentication", "USER_DAO");
         return user;
     }
     
@@ -33,9 +32,10 @@ User UserDAO::authenticateUser(const QString& username, const QString& password)
     
     if (query.next()) {
         QString storedHash = query.value("password_hash").toString();
-        QString salt = query.value("salt").toString();
+        QString storedSalt = query.value("salt").toString();
         
-        if (verifyPassword(password, storedHash, salt)) {
+        // 验证密码哈希和盐值
+        if (passwordHash == storedHash && salt == storedSalt) {
             user = buildUserFromQuery(query);
             
             // 更新最后登录时间
@@ -55,43 +55,96 @@ User UserDAO::authenticateUser(const QString& username, const QString& password)
     return user;
 }
 
-ErrorCode UserDAO::createUser(const User& user)
+// 修改 createUser 方法中的 validateUserData 调用
+ErrorCode UserDAO::createUser(const QString& username, const QString& passwordHash, const QString& salt, 
+                             UserRole role, UserStatus status)
 {
-    if (!validateUserData(user)) {
+    // 调用已声明的方法版本，不再传递 role 参数
+    if (!validateUserData(username) || passwordHash.isEmpty() || salt.isEmpty()) {
         return ErrorCode::InvalidParameter;
     }
     
     // 检查用户名是否已存在
-    if (isUsernameExists(user.userName)) {
+    if (isUsernameExists(username)) {
         return ErrorCode::UserExists;
     }
-    
-    QString salt = generateSalt();
-    QString passwordHash = generatePasswordHash(user.password, salt);
     
     QString sql = "INSERT INTO users (username, password_hash, salt, role, status, created_at, updated_at) "
                   "VALUES (?, ?, ?, ?, ?, NOW(), NOW())";
     
     QVariantList params;
-    params << user.userName << passwordHash << salt 
-           << static_cast<int>(user.role) << static_cast<int>(user.status);
+    params << username << passwordHash << salt 
+           << static_cast<int>(role) << static_cast<int>(status);
     
     if (executeUpdate(sql, params)) {
         Logger::instance()->auditLog("SYSTEM", "CREATE_USER", 
-                                    QString("User %1 created successfully").arg(user.userName), true);
+                                    QString("User %1 created successfully").arg(username), true);
         return ErrorCode::Success;
     }
     
     return ErrorCode::DatabaseError;
 }
 
+User UserDAO::getUserBasicInfo(const QString& username)
+{
+    User user;
+    
+    if (username.isEmpty()) {
+        return user;
+    }
+    
+    QString sql = "SELECT user_id, username, role, status, "
+                  "created_at, updated_at, last_login_at FROM users WHERE username = ? AND status != ?";
+    
+    QVariantList params;
+    params << username << static_cast<int>(UserStatus::Deleted);
+    
+    QSqlQuery query = executeQuery(sql, params);
+    
+    if (query.next()) {
+        user.id = query.value("user_id").toLongLong();
+        user.userName = query.value("username").toString();
+        user.role = static_cast<UserRole>(query.value("role").toInt());
+        user.status = static_cast<UserStatus>(query.value("status").toInt());
+        user.createdAt = fromDatabaseTimestamp(query.value("created_at"));
+        user.updatedAt = fromDatabaseTimestamp(query.value("updated_at"));
+        user.lastLoginAt = fromDatabaseTimestamp(query.value("last_login_at"));
+        // 不返回密码相关信息
+    }
+    
+    return user;
+}
+
+ErrorCode UserDAO::updateUserPassword(qint64 userId, const QString& newPasswordHash, const QString& newSalt)
+{
+    if (userId <= 0 || newPasswordHash.isEmpty() || newSalt.isEmpty()) {
+        return ErrorCode::InvalidParameter;
+    }
+    
+    QString sql = "UPDATE users SET password_hash = ?, salt = ?, updated_at = NOW() WHERE user_id = ?";
+    
+    QVariantList params;
+    params << newPasswordHash << newSalt << userId;
+    
+    if (executeUpdate(sql, params)) {
+        Logger::instance()->auditLog(QString::number(userId), "UPDATE_PASSWORD", 
+                                    "Password updated successfully", true);
+        return ErrorCode::Success;
+    }
+    
+    return ErrorCode::DatabaseError;
+}
+
+
+// 修改 updateUser 方法中的 validateUserData 调用
 ErrorCode UserDAO::updateUser(const User& user)
 {
     if (user.id <= 0) {
         return ErrorCode::InvalidParameter;
     }
     
-    if (!validateUserData(user)) {
+    // 直接调用已声明的方法版本，不需要额外参数
+    if (!validateUserData(user.userName)) {
         return ErrorCode::InvalidParameter;
     }
     
@@ -205,34 +258,6 @@ QList<User> UserDAO::getAllUsers()
     return users;
 }
 
-ErrorCode UserDAO::updateUserPassword(qint64 userId, const QString& newPassword)
-{
-    if (userId <= 0 || newPassword.isEmpty()) {
-        return ErrorCode::InvalidParameter;
-    }
-    
-    if (newPassword.length() < 6) {
-        Logger::instance()->warning("Password too short", "USER_DAO");
-        return ErrorCode::InvalidParameter;
-    }
-    
-    QString salt = generateSalt();
-    QString passwordHash = generatePasswordHash(newPassword, salt);
-    
-    QString sql = "UPDATE users SET password_hash = ?, salt = ?, updated_at = NOW() WHERE user_id = ?";
-    
-    QVariantList params;
-    params << passwordHash << salt << userId;
-    
-    if (executeUpdate(sql, params)) {
-        Logger::instance()->auditLog(QString::number(userId), "UPDATE_PASSWORD", 
-                                    "Password updated successfully", true);
-        return ErrorCode::Success;
-    }
-    
-    return ErrorCode::DatabaseError;
-}
-
 ErrorCode UserDAO::updateUserStatus(qint64 userId, UserStatus status)
 {
     if (userId <= 0) {
@@ -245,8 +270,28 @@ ErrorCode UserDAO::updateUserStatus(qint64 userId, UserStatus status)
     params << static_cast<int>(status) << userId;
     
     if (executeUpdate(sql, params)) {
+        // 添加更详细的状态变更日志
+        QString statusStr;
+        switch(status) {
+            case UserStatus::Active: 
+                statusStr = "Active";
+                break;
+            case UserStatus::Inactive: 
+                statusStr = "Inactive";
+                break;
+            case UserStatus::Suspended: 
+                statusStr = "Suspended";
+                break;
+            case UserStatus::Deleted: 
+                statusStr = "Deleted";
+                break;
+            default: 
+                statusStr = "Unknown";
+                break;
+        }
+        
         Logger::instance()->auditLog(QString::number(userId), "UPDATE_STATUS", 
-                                    QString("Status updated to %1").arg(static_cast<int>(status)), true);
+                                    QString("User %1 status updated to %2").arg(userId).arg(statusStr), true);
         return ErrorCode::Success;
     }
     
@@ -312,7 +357,8 @@ User UserDAO::buildUserFromQuery(const QSqlQuery& query)
     User user;
     user.id = query.value("user_id").toLongLong();
     user.userName = query.value("username").toString();
-    user.password = ""; // 不返回密码
+    user.passwordHash = query.value("password_hash").toString();
+    user.salt = query.value("salt").toString();
     user.role = static_cast<UserRole>(query.value("role").toInt());
     user.status = static_cast<UserStatus>(query.value("status").toInt());
     user.createdAt = fromDatabaseTimestamp(query.value("created_at"));
@@ -322,44 +368,72 @@ User UserDAO::buildUserFromQuery(const QSqlQuery& query)
     return user;
 }
 
-bool UserDAO::validateUserData(const User& user)
+bool UserDAO::validateUserData(const QString& userName)
 {
     // 验证用户名
-    if (user.userName.isEmpty() || user.userName.length() > 50) {
+    if (userName.isEmpty() || userName.length() > 32) {
         Logger::instance()->warning("Invalid username length", "USER_DAO");
         return false;
     }
     
     // 用户名只能包含字母、数字、下划线
     QRegularExpression usernameRegex("^[a-zA-Z0-9_]+$");
-    if (!usernameRegex.match(user.userName).hasMatch()) {
+    if (!usernameRegex.match(userName).hasMatch()) {
         Logger::instance()->warning("Invalid username format", "USER_DAO");
         return false;
     }
-    
-    // 验证密码（仅在创建用户时）
-    if (!user.password.isEmpty() && user.password.length() < 6) {
-        Logger::instance()->warning("Password too short", "USER_DAO");
-        return false;
-    }
-    
+  
+
     return true;
 }
 
-QString UserDAO::generatePasswordHash(const QString& password, const QString& salt)
+void UserDAO::printUser(User& user)
 {
-    QByteArray data = (password + salt).toUtf8();
-    QByteArray hash = QCryptographicHash::hash(data, QCryptographicHash::Sha256);
-    return hash.toHex();
-}
-
-QString UserDAO::generateSalt()
-{
-    return QUuid::createUuid().toString().remove('{').remove('}').remove('-');
-}
-
-bool UserDAO::verifyPassword(const QString& password, const QString& hash, const QString& salt)
-{
-    QString computedHash = generatePasswordHash(password, salt);
-    return computedHash == hash;
+    // 将用户角色转换为字符串
+    QString roleStr;
+    switch(user.role) {
+        case UserRole::Admin: roleStr = "Admin";
+ break;
+        case UserRole::ReportUploader: roleStr = "ReportUploader";
+ break;
+        case UserRole::ReportViewer: roleStr = "ReportViewer";
+ break;
+        default: roleStr = "Unknown";
+ break;
+    }
+    
+    // 将用户状态转换为字符串
+    QString statusStr;
+    switch(user.status) {
+        case UserStatus::Active: statusStr = "Active";
+ break;
+        case UserStatus::Inactive: statusStr = "Inactive";
+ break;
+        case UserStatus::Suspended: statusStr = "Suspended";
+ break;
+        case UserStatus::Deleted: statusStr = "Deleted";
+ break;
+        default: statusStr = "Unknown";
+ break;
+    }
+    
+    // 构建用户信息字符串
+    QString userInfo = QString("User Information:\n")
+                     + QString("  ID: %1\n").arg(user.id)
+                     + QString("  Username: %1\n").arg(user.userName)
+                     + QString("  Email: %1\n").arg(user.email)
+                     + QString("  Role: %1\n").arg(roleStr)
+                     + QString("  Status: %1\n").arg(statusStr)
+                     + QString("  Created At: %1\n").arg(user.createdAt.toString(Qt::ISODate))
+                     + QString("  Updated At: %1\n").arg(user.updatedAt.toString(Qt::ISODate))
+                     + QString("  Last Login At: %1\n").arg(user.lastLoginAt.toString(Qt::ISODate))
+                     + QString("  Login Attempts: %1\n").arg(user.loginAttempts)
+                     + QString("  Locked Until: %1\n").arg(user.lockedUntil.toString(Qt::ISODate));
+    
+    // 输出到控制台
+    qDebug() << userInfo;
+    
+    // 记录到日志
+    Logger::instance()->info(QString("User Info - ID: %1, Username: %2, Role: %3, Status: %4")
+                            .arg(user.id).arg(user.userName).arg(roleStr).arg(statusStr), "USER_DAO");
 }

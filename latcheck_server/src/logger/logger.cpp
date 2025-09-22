@@ -129,8 +129,8 @@ void Logger::log(LogLevel level, const QString& message, const QString& category
                       .arg(category.isEmpty() ? "GENERAL" : category)
                       .arg(message);
     
-    // 写入文件
-    if (log_file_.isOpen()) {
+    // 写入文件（如果启用）
+    if (config_.enableFile && log_file_.isOpen()) {
         QTextStream stream(&log_file_);
         stream << logEntry;
         stream.flush();
@@ -143,11 +143,13 @@ void Logger::log(LogLevel level, const QString& message, const QString& category
         }
     }
     
-    // 同时输出到控制台（Error和Critical级别）
-    if (level >= LogLevel::Error) {
-        std::cerr << logEntry.toStdString();
-    } else if (level >= LogLevel::Warning) {
-        std::cout << logEntry.toStdString();
+    // 输出到控制台（如果启用）
+    if (config_.enableConsole) {
+        if (level >= LogLevel::Error) {
+            std::cerr << logEntry.toStdString();
+        } else {
+            std::cout << logEntry.toStdString();
+        }
     }
 }
 
@@ -253,33 +255,106 @@ QString Logger::logLevelToString(LogLevel level)
     }
 }
 
+QString Logger::formatMessage(LogLevel level, const QString& message, const QString& category)
+{
+    QString format = config_.format;
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+    QString levelStr = logLevelToString(level);
+    QString categoryStr = category.isEmpty() ? "GENERAL" : category;
+    
+    // 简单的格式替换（可以根据需要扩展）
+    format.replace("%{time yyyy-MM-dd hh:mm:ss.zzz}", timestamp);
+    format.replace("%{type}", levelStr);
+    format.replace("%{message}", message);
+    format.replace("%{category}", categoryStr);
+    
+    return format + "\n";
+}
+
+void Logger::writeToFile(const QString& formattedMessage)
+{
+    if (!log_file_.isOpen()) {
+        return;
+    }
+    
+    QTextStream stream(&log_file_);
+    stream << formattedMessage;
+    stream.flush();
+    
+    current_file_size_ += formattedMessage.toUtf8().size();
+    
+    // 检查文件大小，需要轮转
+    if (current_file_size_ > max_file_size_) {
+        checkAndRotateFile();
+    }
+}
+
+void Logger::writeToConsole(const QString& formattedMessage, LogLevel level)
+{
+    // 根据日志级别选择输出流
+    if (level >= LogLevel::Error) {
+        std::cerr << formattedMessage.toStdString();
+    } else {
+        std::cout << formattedMessage.toStdString();
+    }
+}
+
+bool Logger::shouldLog(LogLevel level) const
+{
+    return level >= log_level_;
+}
+
+void Logger::checkAndRotateFile()
+{
+    if (current_file_size_ > max_file_size_) {
+        rotateLogFile();
+    }
+}
+
 bool Logger::initialize(const LogConfig& config)
 {
     config_ = config;
     
     // Set log level based on config
-    if (config.level == "debug") {
+    QString levelStr = config.level.toLower();
+    if (levelStr == "debug") {
         log_level_ = LogLevel::Debug;
-    } else if (config.level == "info") {
+    } else if (levelStr == "info") {
         log_level_ = LogLevel::Info;
-    } else if (config.level == "warning") {
+    } else if (levelStr == "warning") {
         log_level_ = LogLevel::Warning;
-    } else if (config.level == "error") {
+    } else if (levelStr == "error") {
         log_level_ = LogLevel::Error;
-    } else if (config.level == "critical") {
+    } else if (levelStr == "critical") {
         log_level_ = LogLevel::Critical;
     } else {
         log_level_ = LogLevel::Info; // default
     }
+    
+    // 应用文件大小和文件数量限制
+    max_file_size_ = config.maxFileSize;
+    max_files_ = config.maxFiles;
     
     // Set log directory from config
     if (!config.filePath.isEmpty()) {
         QFileInfo fileInfo(config.filePath);
         log_directory_ = fileInfo.absolutePath();
         initializeLogDirectory();
-        openLogFile();
-        openAuditFile();
+        
+        // 只有在启用文件日志时才打开文件
+        if (config.enableFile) {
+            openLogFile();
+            openAuditFile();
+        }
     }
+    
+    Logger::instance()->info("Logger", 
+        QString("Logger initialized - Level: %1, File: %2, Console: %3, MaxSize: %4, MaxFiles: %5")
+            .arg(config.level)
+            .arg(config.enableFile ? "enabled" : "disabled")
+            .arg(config.enableConsole ? "enabled" : "disabled")
+            .arg(config.maxFileSize)
+            .arg(config.maxFiles));
     
     return true;
 }

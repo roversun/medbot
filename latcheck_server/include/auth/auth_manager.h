@@ -49,10 +49,6 @@ public:
     void recordLoginAttempt(const QString& username, const QString& clientIP, bool successful);
     bool checkRateLimit(const QString& clientIP);
     
-    QString hashPassword(const QString& password, const QString& salt = QString());
-    QString generateSalt();
-    bool verifyPassword(const QString& password, const QString& hashedPassword, const QString& salt);
-    
     void setSessionTimeout(int minutes);
     void setMaxLoginAttempts(int attempts);
     void setLockoutDuration(int minutes);
