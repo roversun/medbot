@@ -36,6 +36,7 @@ set(SOURCES
     src/database/base_dao.cpp
     src/database/user_dao.cpp
     src/database/report_dao.cpp
+    src/database/server_dao.cpp  # Add this line
     src/protocol/message_protocol.cpp
     src/server/tls_server.cpp
     src/auth/auth_manager.cpp
@@ -50,6 +51,7 @@ set(HEADERS
     include/database/base_dao.h
     include/database/user_dao.h
     include/database/report_dao.h
+    include/database/server_dao.h  # Add this line
     include/protocol/message_protocol.h
     include/server/tls_server.h
     include/auth/auth_manager.h

@@ -15,13 +15,14 @@ class ConfigManager;
 class Logger;
 class UserDAO;
 class ReportDAO;
-
+class ServerDAO;  // 添加ServerDAO前向声明
 
 #include "config/config_manager.h"
 #include "logger/logger.h"
 #include "auth/auth_manager.h"
 #include "database/user_dao.h"
 #include "database/report_dao.h"
+#include "database/server_dao.h"  // 添加ServerDAO头文件
 #include "protocol/message_protocol.h"
 #include "common/error_codes.h"
 #include "common/types.h"
@@ -75,7 +76,7 @@ public:
     void setConfigManager(ConfigManager* config);
     void setUserDAO(UserDAO* userDAO);
     void setReportDAO(ReportDAO* reportDAO);
-
+    void setServerDAO(ServerDAO* serverDAO);  // 添加ServerDAO设置方法
     void setAuthManager(AuthManager* authManager);
 
 protected:
@@ -145,6 +146,7 @@ private:
     ConfigManager* config_manager_;
     UserDAO* user_dao_;
     ReportDAO* report_dao_;
+    ServerDAO* server_dao_;  // 添加ServerDAO成员变量
     
     QSslConfiguration ssl_config_;
     QHash<QSslSocket*, ClientSession*> clients_;

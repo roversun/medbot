@@ -6,7 +6,7 @@
     "username": "latcheck_user",
     "password": "Medbot8848@hlht",
     "min_connections": 5,
-    "max_connections": 10,
+    "max_connections": 50,
     "connection_timeout": 30,
     "idle_timeout": 300,
     "charset": "utf8mb4",

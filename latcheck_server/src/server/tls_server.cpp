@@ -157,6 +157,12 @@ void TlsServer::setReportDAO(ReportDAO *reportDAO)
     report_dao_ = reportDAO;
 }
 
+// 添加缺失的 setServerDAO 方法实现
+void TlsServer::setServerDAO(ServerDAO *serverDAO)
+{
+    server_dao_ = serverDAO;
+}
+
 // 修复incomingConnection方法
 void TlsServer::incomingConnection(qintptr socketDescriptor)
 {
@@ -776,20 +782,22 @@ void TlsServer::handleListRequest(ClientSession *session)
     sendResponse(session, MessageType::LIST_RESPONSE, response);
 }
 
+// 修改getTestServerList方法使用数据库查询
 QList<ServerInfo> TlsServer::getTestServerList()
 {
-    QList<ServerInfo> servers;
-
-    ServerInfo server1;
-    server1.serverId = 1;
-    server1.ipAddr = QHostAddress("192.168.1.100").toIPv4Address();
-    servers.append(server1);
-
-    ServerInfo server2;
-    server2.serverId = 2;
-    server2.ipAddr = QHostAddress("192.168.1.101").toIPv4Address();
-    servers.append(server2);
-
+    // 如果ServerDAO未设置，返回空列表并记录错误
+    if (!server_dao_) {
+        Logger::instance()->error("TlsServer", "ServerDAO not set, cannot retrieve server list");
+        return QList<ServerInfo>();
+    }
+    
+    // 从数据库获取活跃的服务器列表
+    QList<ServerInfo> servers = server_dao_->getActiveServers();
+    
+    Logger::instance()->info("TlsServer", 
+                            QString("Retrieved %1 active servers from database")
+                                .arg(servers.size()));
+    
     return servers;
 }
 

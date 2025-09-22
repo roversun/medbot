@@ -47,8 +47,8 @@ struct ServerInfo {
     quint32 serverId;       // 服务器ID（4字节）
     quint32 ipAddr;         // IP地址（4字节）
     
-    ServerInfo() : serverId(0), ipAddr(0) {}
-    ServerInfo(quint32 id, quint32 ip) : serverId(id), ipAddr(ip) {}
+    ServerInfo() : serverId(0), ipAddr(0) {}    
+    ServerInfo(quint32 id, quint32 ip) : serverId(id), ipAddr(ip) {} 
 };
 
 // 服务器列表响应数据

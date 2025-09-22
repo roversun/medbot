@@ -5,6 +5,7 @@ USE latcheck;
 -- 删除现有的表（按照外键依赖关系顺序删除）
 DROP TABLE IF EXISTS report_details;
 DROP TABLE IF EXISTS latcheck_report;
+DROP TABLE IF EXISTS test_server;
 DROP TABLE IF EXISTS users;
 
 -- 创建用户表
@@ -55,6 +56,25 @@ CREATE TABLE IF NOT EXISTS report_details (
     INDEX idx_test_time (test_time),
     FOREIGN KEY (report_id) REFERENCES latcheck_report(report_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 创建测试服务器表
+CREATE TABLE IF NOT EXISTS test_server (
+    server_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '服务器ID，主键',
+    location VARCHAR(128) UNIQUE NOT NULL COMMENT '位置信息，唯一',
+    ip_addr INT UNSIGNED NOT NULL COMMENT 'IPv4地址整数值',
+    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    active BOOLEAN DEFAULT TRUE COMMENT '是否活跃',
+    INDEX idx_location (location),
+    INDEX idx_active (active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 插入一些测试服务器数据
+INSERT INTO test_server (location, ip_addr, active) VALUES 
+('北京', INET_ATON('192.168.1.100'), TRUE),
+('上海', INET_ATON('192.168.1.101'), TRUE),
+('广州', INET_ATON('192.168.1.102'), TRUE),
+('深圳', INET_ATON('192.168.1.103'), FALSE),
+('杭州', INET_ATON('192.168.1.104'), TRUE);
 
 -- 插入默认管理员用户（密码：Medbot8848）
 INSERT INTO users (username, password_hash, salt, role, status) VALUES 

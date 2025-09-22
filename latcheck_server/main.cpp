@@ -13,11 +13,13 @@
 #include "database/database_pool.h"
 #include "database/user_dao.h"
 #include "database/report_dao.h"
+#include "database/server_dao.h" // 添加ServerDAO头文件
 #include "auth/auth_manager.h"
 #include "server/tls_server.h"
 // 移除REST API头文件引用
 // #include "api/rest_api_server.h"
 
+// 在 LatCheckServer 类的 private 部分添加方法声明
 class LatCheckServer : public QObject
 {
     Q_OBJECT
@@ -40,6 +42,7 @@ public:
         shutdown();
     }
 
+    // 在initialize方法中，在ServerDAO初始化后调用新方法
     bool initialize()
     {
         try
@@ -74,6 +77,10 @@ public:
             // 4. 初始化数据访问层
             user_dao_ = std::make_shared<UserDAO>();
             report_dao_ = std::make_shared<ReportDAO>();
+            server_dao_ = std::make_shared<ServerDAO>(); // 添加ServerDAO初始化
+
+            // 解析ip_result.txt文件并更新服务器信息
+            parseIpResultFile();
 
             // 5. 初始化认证管理器
             logger_ = Logger::instance();
@@ -87,7 +94,8 @@ public:
             tls_server_->setConfigManager(config_);
             tls_server_->setUserDAO(user_dao_.get());
             tls_server_->setReportDAO(report_dao_.get());
-            tls_server_->setAuthManager(auth_manager_.get()); 
+            tls_server_->setServerDAO(server_dao_.get()); // 添加ServerDAO设置
+            tls_server_->setAuthManager(auth_manager_.get());
 
             Logger::instance()->info("All components initialized successfully");
             return true;
@@ -188,12 +196,14 @@ public:
         Logger::instance()->info("LatCheckServer shutdown completed");
     }
 
+    // 在LatCheckServer类的private部分添加新方法声明
 private:
     ConfigManager *config_;
     Logger *logger_;
     DatabasePool *db_pool_;
     std::shared_ptr<UserDAO> user_dao_;
     std::shared_ptr<ReportDAO> report_dao_;
+    std::shared_ptr<ServerDAO> server_dao_; // 添加ServerDAO成员变量
     std::shared_ptr<AuthManager> auth_manager_;
     std::shared_ptr<TlsServer> tls_server_;
 
@@ -251,6 +261,111 @@ private:
         [[maybe_unused]] ssize_t result = ::write(sigtermFd[0], &a, sizeof(a));
     }
 
+    // 在LatCheckServer类的private方法部分添加新方法的实现
+    // 修改 parseIpResultFile() 方法
+    void parseIpResultFile()
+    {
+        QString filePath = QString("config/ip_result.txt");
+        QFile file(filePath);
+
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            Logger::instance()->error(QString("Failed to open IP result file: %1").arg(file.fileName()));
+            return;
+        }
+
+        // 手动获取一个数据库连接
+        QSqlDatabase db = DatabasePool::instance()->getConnection();
+        if (!db.isValid() || !db.isOpen())
+        {
+            Logger::instance()->error("Failed to get database connection for server insertion");
+            file.close();
+            return;
+        }
+
+        // 在当前连接上开始事务
+        if (!db.transaction())
+        {
+            Logger::instance()->error("Failed to begin transaction for server insertion");
+            DatabasePool::instance()->releaseConnection(db);
+            file.close();
+            return;
+        }
+
+        QTextStream in(&file);
+        QString header = in.readLine(); // 跳过表头
+
+        int successCount = 0;
+        int failCount = 0;
+        bool transactionSuccess = true;
+
+        while (!in.atEnd() && transactionSuccess)
+        {
+            QString line = in.readLine();
+            QStringList fields = line.split(',');
+
+            // 387, success, 185.247.184.62, 542ms, 意大利 米兰 SU区
+
+            if (fields.size() >= 4 && fields[1].trimmed() == "success")
+            {
+                QString ip = fields[2].trimmed();
+                QString description = fields[4].trimmed();
+
+                // 将 IP 地址转换为整数
+                quint32 ipInt = ipToInt(ip);
+
+                // 直接在当前连接上执行SQL，不通过server_dao_的方法
+                QSqlQuery query(db);
+                query.prepare("INSERT INTO test_server (location, ip_addr, active) VALUES (?, ?, ?) "
+                              "ON DUPLICATE KEY UPDATE ip_addr = VALUES(ip_addr), active = VALUES(active)");
+                query.addBindValue(description);
+                query.addBindValue(ipInt);
+                query.addBindValue(true);
+
+                if (!query.exec())
+                {
+                    Logger::instance()->error(QString("Failed to add server: %1, IP: %2 - %3")
+                                                  .arg(description)
+                                                  .arg(ip)
+                                                  .arg(query.lastError().text()));
+                    failCount++;
+                }
+                else
+                {
+                    successCount++;
+                }
+            }
+        }
+
+        // 提交或回滚事务
+        if (transactionSuccess && db.commit())
+        {
+            Logger::instance()->info(QString("Server insertion completed: %1 succeeded, %2 failed")
+                                         .arg(successCount)
+                                         .arg(failCount));
+        }
+        else
+        {
+            db.rollback();
+            Logger::instance()->error("Transaction for server insertion rolled back due to errors");
+        }
+
+        // 释放数据库连接
+        DatabasePool::instance()->releaseConnection(db);
+        file.close();
+    }
+    // 实现 IP 地址转换方法
+    quint32 ipToInt(const QString &ip)
+    {
+        QHostAddress address(ip);
+        if (address.protocol() != QAbstractSocket::IPv4Protocol)
+        {
+            throw std::invalid_argument(QString("Invalid IPv4 address: %1").arg(ip).toStdString());
+        }
+
+        return address.toIPv4Address();
+    }
+
 public slots:
     void handleSigInt()
     {
@@ -258,11 +373,11 @@ public slots:
         char tmp;
         // 使用变量接收返回值并标记为unused
         [[maybe_unused]] ssize_t result = ::read(sigintFd[1], &tmp, sizeof(tmp));
-    
+
         Logger::instance()->info("Received SIGINT, shutting down gracefully...");
         shutdown();
         QCoreApplication::quit();
-    
+
         snInt->setEnabled(true);
     }
 
@@ -272,7 +387,7 @@ public slots:
         char tmp;
         // 使用变量接收返回值并标记为unused
         [[maybe_unused]] ssize_t result = ::read(sigtermFd[1], &tmp, sizeof(tmp));
-    
+
         Logger::instance()->info("Received SIGTERM, shutting down gracefully...");
         shutdown();
         QCoreApplication::quit();
