@@ -3,7 +3,6 @@
 #include <QMutexLocker>
 #include <QtEndian>
 
-
 #ifdef Q_OS_WIN
 #include <winsock2.h>
 #include <iphlpapi.h>
@@ -38,21 +37,21 @@ void LatencyWorker::startChecking()
         const auto &server = m_serverList[i];
         quint32 serverId = server.first;
         quint32 ipAddr = server.second;
-        
+
         // 实现重试机制：最多尝试3次，取最低延时值
         int bestLatency = -1;
         int attempts = 0;
         const int maxAttempts = 3;
-        
+
         for (attempts = 0; attempts < maxAttempts; ++attempts)
         {
             if (m_shouldStop.loadRelaxed())
             {
                 break;
             }
-            
+
             int latency = pingHost(ipAddr);
-            
+
             if (latency >= 0)
             {
                 // 成功获取延时，更新最佳结果
@@ -63,18 +62,19 @@ void LatencyWorker::startChecking()
                 // 如果第一次就成功，不需要继续重试
                 break;
             }
-            
+
             // 如果不是最后一次尝试，稍微等待后重试
             if (attempts < maxAttempts - 1)
             {
                 QThread::msleep(500); // 等待500ms后重试
             }
         }
-        
+
         emit resultReady(serverId, ipAddr, bestLatency);
-        
+
         // 只输出失败的结果（所有重试都失败）
-        if (bestLatency < 0) {
+        if (bestLatency < 0)
+        {
             emit logMessage("Failed to ping Server ID " + QString::number(serverId) + ": " + QHostAddress(ipAddr).toString() + " (tried " + QString::number(attempts) + " times)");
         }
     }
@@ -122,13 +122,13 @@ int LatencyWorker::pingHost(quint32 ipAddr)
         }
         else
         {
-            latency = -1;  // 明确设置为-1
+            latency = -1; // 明确设置为-1
             emit logMessage("Received ICMP echo reply with error status from " + QHostAddress(ipAddr).toString() + ", status: " + QString::number(pEchoReply->Status));
         }
     }
     else
     {
-        latency = -1;  // 明确设置为-1
+        latency = -1; // 明确设置为-1
         DWORD error = GetLastError();
         emit logMessage("No ICMP echo reply received from " + QHostAddress(ipAddr).toString() + ", error: " + QString::number(error));
     }
@@ -183,22 +183,27 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
     QList<QPair<quint32, quint32>> servers;
     for (const QVariant &item : serverList)
     {
-        if (item.canConvert<QVariantMap>()) {
+        if (item.canConvert<QVariantMap>())
+        {
             QVariantMap server = item.toMap();
             quint32 serverId = server["server_id"].toUInt();
-            QString ipString = server["ip_address"].toString();
-            
-            QHostAddress addr(ipString);
-            if (!addr.isNull() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
-                quint32 ipAddr = addr.toIPv4Address();
+            // QString ipString = server["ip_address"].toString();
+            quint32 ipAddr = server["ip_address"].toUInt();
+
+            QHostAddress addr(ipAddr);
+            if (!addr.isNull() && addr.protocol() == QAbstractSocket::IPv4Protocol)
+            {
                 servers.append(qMakePair(serverId, ipAddr));
-            } else {
-                emit logMessage("Warning: Invalid IP address: " + ipString);
+            }
+            else
+            {
+                emit logMessage(QString("Warning: Invalid IP address value %1").arg(ipAddr));
             }
         }
     }
 
-    if (servers.isEmpty()) {
+    if (servers.isEmpty())
+    {
         emit logMessage("Error: No valid servers found in server list");
         return;
     }
@@ -208,8 +213,8 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
     setRunning(true);
 
     m_results.clear();
-    m_successResults.clear();  // 清空成功结果记录
-    m_failedResults.clear();   // 清空失败结果记录
+    m_successResults.clear(); // 清空成功结果记录
+    m_failedResults.clear();  // 清空失败结果记录
     m_finishedWorkers = 0;
 
     // 分配服务器到各个线程
@@ -260,8 +265,8 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
 void LatencyChecker::onWorkerLogMessage(const QString &message)
 {
     // 只转发失败相关的日志消息，过滤掉成功的详细日志，并去掉[LatencyChecker]前缀
-    if (message.contains("Failed") || 
-        message.contains("Error") || 
+    if (message.contains("Failed") ||
+        message.contains("Error") ||
         message.contains("Warning") ||
         message.contains("error status") ||
         message.contains("No ICMP echo reply") ||
@@ -304,28 +309,32 @@ void LatencyChecker::stopChecking()
 void LatencyChecker::onWorkerResult(quint32 serverId, quint32 ipAddr, int latency)
 {
     QMutexLocker locker(&m_resultsMutex);
-    
+
     QVariantMap result;
     result["server_id"] = serverId;
-    result["ip_address"] = QHostAddress(ipAddr).toString();
+    result["ip_address"] = ipAddr;
     result["latency"] = latency;
     m_results.append(result);
-    
+
     // 记录成功和失败的详细结果
-    if (latency >= 0) {
+    if (latency >= 0)
+    {
         m_successResults.append(qMakePair(serverId, latency));
-    } else {
+    }
+    else
+    {
         m_failedResults.append(serverId);
     }
-    
+
     emit latencyResult(serverId, ipAddr, latency);
-    
+
     setProgress(m_results.size());
-    
+
     // 每处理100个结果输出一次进度信息
-    if (m_results.size() % 100 == 0) {
-        emit logMessage("Progress: " + QString::number(m_results.size()) + "/" + QString::number(m_totalIps) + 
-                       " processed, " + QString::number(m_successResults.size()) + " successful");
+    if (m_results.size() % 100 == 0)
+    {
+        emit logMessage("Progress: " + QString::number(m_results.size()) + "/" + QString::number(m_totalIps) +
+                        " processed, " + QString::number(m_successResults.size()) + " successful");
     }
 }
 
@@ -343,28 +352,34 @@ void LatencyChecker::onWorkerFinished()
         if (m_results.size() >= m_totalIps)
         {
             qDebug() << "All ping operations completed, setting running to false";
-            
+
             // 输出详细的成功和失败统计
             QString successList;
-            for (const auto &success : m_successResults) {
-                if (!successList.isEmpty()) successList += ", ";
+            for (const auto &success : m_successResults)
+            {
+                if (!successList.isEmpty())
+                    successList += ", ";
                 successList += "id" + QString::number(success.first) + "-" + QString::number(success.second) + "ms";
             }
-            
+
             QString failedList;
-            for (quint32 failedId : m_failedResults) {
-                if (!failedList.isEmpty()) failedList += ", ";
+            for (quint32 failedId : m_failedResults)
+            {
+                if (!failedList.isEmpty())
+                    failedList += ", ";
                 failedList += "id" + QString::number(failedId);
             }
-            
+
             emit logMessage("Latency check completed: " + QString::number(m_results.size()) + " total");
-            if (!successList.isEmpty()) {
+            if (!successList.isEmpty())
+            {
                 emit logMessage("成功检测：" + successList);
             }
-            if (!failedList.isEmpty()) {
+            if (!failedList.isEmpty())
+            {
                 emit logMessage("检测失败：" + failedList);
             }
-            
+
             setRunning(false);
             emit checkingFinished(m_results);
         }
@@ -434,6 +449,3 @@ void LatencyChecker::cleanup()
     m_workers.clear();
     m_finishedWorkers = 0;
 }
-
-
-

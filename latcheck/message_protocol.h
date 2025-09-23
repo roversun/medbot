@@ -34,7 +34,7 @@ struct MessageHeader
 // 登录请求数据
 struct LoginRequestData
 {
-    char userName[32];     // 用户名（32字节）
+    char userName[32]; // 用户名（32字节）
     char password[32]; // 密码（32字节）
 
     LoginRequestData()
@@ -74,14 +74,14 @@ struct LatencyRecord
 };
 
 // 报告上传请求数据
+#define LOCATION_LEN 128
 struct ReportRequestData
 {
-    quint32 locationLength;       // 位置信息长度（4字节）
-    QString location;             // 位置信息（变长）
-    quint32 recordCount;          // 记录数量（4字节）
-    QList<LatencyRecord> records; // 延时记录列表
+    char location[LOCATION_LEN] = {0}; // 位置信息（定长）
+    quint32 recordCount;               // 记录数量（4字节）
+    QList<LatencyRecord> records;      // 延时记录列表
 
-    ReportRequestData() : locationLength(0), recordCount(0) {}
+    ReportRequestData() : recordCount(0) {}
 };
 
 // 消息协议处理类
@@ -119,7 +119,6 @@ public:
 
     // 获取消息类型字符串
     static QString getMessageTypeString(MessageType type);
-
 };
 
 #endif // MESSAGEPROTOCOL_H

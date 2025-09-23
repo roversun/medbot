@@ -589,7 +589,7 @@ void NetworkManager::handleMessage(MessageType msgType, const QByteArray &messag
         disconnectFromServer();
         break;
     case MessageType::LIST_RESPONSE:
-        emit errorOccurred(formatLogMessage("📋 Received server list"));
+        // emit errorOccurred(formatLogMessage("📋 Received server list"));
         processServerListResponse(messageData);
         break;
     case MessageType::REPORT_OK:
@@ -656,8 +656,23 @@ bool NetworkManager::sendReportRequest(const QString &location, const QVariantLi
         return false;
     }
 
-    QByteArray reportData = createReportRequestData(location, results);
-    QByteArray header = createMessageHeader(static_cast<quint32>(MessageType::REPORT_REQUEST), reportData.size()); // Fix: add MessageType:: scope
+    // 将QVariantList转换为QList<LatencyRecord>
+    QList<LatencyRecord> records;
+    for (const QVariant &result : results)
+    {
+        QVariantMap resultMap = result.toMap();
+        LatencyRecord record;
+        record.serverId = static_cast<quint32>(resultMap["server_id"].toUInt());
+        record.latency = static_cast<quint32>(resultMap["latency"].toUInt());
+        records.append(record);
+    }
+
+    // 使用MessageProtocol::serializeReportRequest序列化数据
+    QByteArray reportData = MessageProtocol::serializeReportRequest(location, records);
+
+    // 创建消息头并发送
+    QByteArray header = MessageProtocol::serializeHeader(
+        MessageHeader(MessageType::REPORT_REQUEST, static_cast<quint32>(reportData.size())));
 
     m_socket->write(header + reportData);
     m_socket->flush();
@@ -852,12 +867,12 @@ void NetworkManager::onLatencyResult(quint32 serverId, quint32 ipAddr, int laten
 {
     QString ipString = QHostAddress(ipAddr).toString();
     QString message = QString("Server ID %1 (%2): %3ms")
-                     .arg(serverId)
-                     .arg(ipString)
-                     .arg(latency >= 0 ? QString::number(latency) : "Failed");
-    
+                          .arg(serverId)
+                          .arg(ipString)
+                          .arg(latency >= 0 ? QString::number(latency) : "Failed");
+
     emit latencyCheckProgress(m_latencyChecker->progress(), m_latencyChecker->totalIps());
-    
+
     // If you need to maintain backward compatibility with UI expecting string IP:
     // You can emit a separate signal or convert the data as needed
 }
@@ -865,15 +880,7 @@ void NetworkManager::onLatencyResult(quint32 serverId, quint32 ipAddr, int laten
 void NetworkManager::onLatencyCheckFinished(const QVariantList &results)
 {
     emit errorOccurred(formatLogMessage(QString("✅ Latency check completed for %1 servers").arg(results.size())));
-    emit latencyCheckFinished(results);
-
-    // 自动上传结果到服务器
-    if (connected())
-    {
-        // 这里需要获取当前位置信息
-        QString location = "Unknown"; // 可以从LocationService获取
-        sendReportRequest(location, results);
-    }
+    emit latencyCheckFinished(results);    
 }
 
 // 修改processServerListResponse函数，添加自动启动延时检测
@@ -892,8 +899,8 @@ void NetworkManager::processServerListResponse(const QByteArray &data)
         stream >> serverId >> ipAddr;
 
         // 修复：使用QHostAddress正确处理IP地址转换
-        QHostAddress address(ipAddr);
-        QString ipString = address.toString();
+        // QHostAddress address(ipAddr);
+        // QString ipString = address.toString();
 
         // emit errorOccurred(formatLogMessage(QString("📋 server %1:%2")
         //                                         .arg(serverId)
@@ -901,7 +908,8 @@ void NetworkManager::processServerListResponse(const QByteArray &data)
 
         QVariantMap server;
         server["server_id"] = serverId;
-        server["ip_address"] = ipString;
+        // server["ip_address"] = ipString;
+        server["ip_address"] = ipAddr;
         serverList.append(server);
     }
 

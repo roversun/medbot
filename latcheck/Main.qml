@@ -246,6 +246,18 @@ ApplicationWindow {
                             }
                             font.bold: true
                         }
+                        
+                        // 添加：logout按钮
+                        Button {
+                            text: "Logout"
+                            visible: networkManager.connected && isLoggedIn
+                            onClicked: {
+                                isLoggedIn = false
+                                networkManager.disconnectFromServer()
+                                logger.logMessage("User logged out")
+                                mainPasswordField.text = ""
+                            }
+                        }
                     }
                     
                     Item { Layout.preferredWidth: 20 }
@@ -283,7 +295,7 @@ ApplicationWindow {
                         text: "Stop"
                         enabled: isRunning
                         Layout.preferredWidth: 100
-                        onClicked: {                            
+                        onClicked: {
                             latencyChecker.stopChecking()
                             // 添加：立即重置运行状态
                             isRunning = false
@@ -773,7 +785,7 @@ ApplicationWindow {
             
             // 自动上传报告
             if (isLoggedIn && results.length > 0) {
-                var location = locationService.getCurrentLocation()
+                var location = configManager.location // 修改为使用与日志相同的位置数据源
                 networkManager.sendReportRequest(location, results)
             } else {
                 // logger.logMessage("✗ Cannot upload report: not logged in or no results")
@@ -790,4 +802,3 @@ ApplicationWindow {
     }
 
 }
-
