@@ -91,11 +91,13 @@ public:
 
             // 6. 初始化TLS服务器
             tls_server_ = std::make_shared<TlsServer>();
-            tls_server_->setConfigManager(config_);
-            tls_server_->setUserDAO(user_dao_.get());
-            tls_server_->setReportDAO(report_dao_.get());
-            tls_server_->setServerDAO(server_dao_.get()); // 添加ServerDAO设置
-            tls_server_->setAuthManager(auth_manager_.get());
+            // 修改第94行为：
+            tls_server_->setConfigManager(QSharedPointer<ConfigManager>(config_, [](ConfigManager *) {}));
+
+            tls_server_->setUserDAO(QSharedPointer<UserDAO>(user_dao_.get()));
+            tls_server_->setReportDAO(QSharedPointer<ReportDAO>(report_dao_.get()));
+            tls_server_->setServerDAO(QSharedPointer<ServerDAO>(server_dao_.get()));
+            tls_server_->setAuthManager(QSharedPointer<AuthManager>(auth_manager_.get()));
 
             Logger::instance()->info("All components initialized successfully");
             return true;

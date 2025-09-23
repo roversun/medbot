@@ -3,7 +3,7 @@ CREATE DATABASE IF NOT EXISTS latcheck CHARACTER SET utf8mb4 COLLATE utf8mb4_uni
 USE latcheck;
 
 -- 删除现有的表（按照外键依赖关系顺序删除）
-DROP TABLE IF EXISTS report_details;
+DROP TABLE IF EXISTS report_record;
 DROP TABLE IF EXISTS latcheck_report;
 DROP TABLE IF EXISTS test_server;
 DROP TABLE IF EXISTS users;
@@ -41,23 +41,7 @@ CREATE TABLE IF NOT EXISTS latcheck_report (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 创建报告详情表
-CREATE TABLE IF NOT EXISTS report_details (
-    detail_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    report_id BIGINT NOT NULL,
-    server_name VARCHAR(100) NOT NULL,
-    server_ip VARCHAR(45) NOT NULL,
-    latency DECIMAL(10,3) NOT NULL DEFAULT 0.000,
-    status VARCHAR(20) NOT NULL,
-    test_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    additional_info TEXT,
-    INDEX idx_report_id (report_id),
-    INDEX idx_server_name (server_name),
-    INDEX idx_test_time (test_time),
-    FOREIGN KEY (report_id) REFERENCES latcheck_report(report_id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 创建测试服务器表
+-- 创建测试服务器表（移到report_record表之前）
 CREATE TABLE IF NOT EXISTS test_server (
     server_id INT AUTO_INCREMENT PRIMARY KEY COMMENT '服务器ID，主键',
     location VARCHAR(128) UNIQUE NOT NULL COMMENT '位置信息，唯一',
@@ -68,13 +52,18 @@ CREATE TABLE IF NOT EXISTS test_server (
     INDEX idx_active (active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 插入一些测试服务器数据
-INSERT INTO test_server (location, ip_addr, active) VALUES 
-('北京', INET_ATON('192.168.1.100'), TRUE),
-('上海', INET_ATON('192.168.1.101'), TRUE),
-('广州', INET_ATON('192.168.1.102'), TRUE),
-('深圳', INET_ATON('192.168.1.103'), FALSE),
-('杭州', INET_ATON('192.168.1.104'), TRUE);
+
+CREATE TABLE IF NOT EXISTS report_record (
+    record_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    report_id BIGINT NOT NULL,
+    server_ip INT UNSIGNED NOT NULL, -- 存储为无符号整数以支持完整的IPv4范围
+    server_id INT NOT NULL COMMENT '关联测试服务器ID', 
+    latency INT UNSIGNED NOT NULL DEFAULT 10000 CHECK (latency BETWEEN 0 AND 10000),
+    INDEX idx_report_id (report_id),
+    INDEX idx_server_id (server_id),
+    FOREIGN KEY (report_id) REFERENCES latcheck_report(report_id) ON DELETE CASCADE,
+    FOREIGN KEY (server_id) REFERENCES test_server(server_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 插入默认管理员用户（密码：Medbot8848）
 INSERT INTO users (username, password_hash, salt, role, status) VALUES 

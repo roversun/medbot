@@ -9,34 +9,89 @@
 #include <QVariant>
 #include <QDateTime>
 
-
-
 ReportDAO::ReportDAO(QObject *parent)
     : BaseDAO(parent)
 {
 }
 
-ErrorCode ReportDAO::createReport(const Report& report)
+ErrorCode ReportDAO::createReport(const Report &report, const QList<ReportRecord> &records)
 {
-    if (!validateReportData(report)) {
+    if (!validateReportData(report))
+    {
         Logger::instance()->error("Invalid report data", "ReportDAO");
         return ErrorCode::InvalidData;
     }
 
+    // 开始事务
+    if (!beginTransaction())
+    {
+        Logger::instance()->error("Failed to start transaction", "ReportDAO");
+        return ErrorCode::TransactionFailed;
+    }
+
+    // 保存报告
     QSqlQuery query = executeQuery(
         "INSERT INTO latcheck_report (check_location, user_name, created_time) VALUES (?, ?, ?)",
-        {report.location, report.userName, report.createdAt.isValid() ? report.createdAt : QDateTime::currentDateTime()}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to create report", "ReportDAO");
+        {report.location, report.userName, report.createdAt.isValid() ? report.createdAt : QDateTime::currentDateTime()});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        rollbackTransaction();
+        Logger::instance()->error(QString("Failed to create report: %1").arg(query.lastError().text()), "ReportDAO");
         return ErrorCode::DatabaseError;
     }
 
+    // 获取刚创建的报告ID
+    qint64 reportId = getLastInsertId();
+    if (reportId <= 0)
+    {
+        rollbackTransaction();
+        Logger::instance()->error("Failed to get last inserted report ID", "ReportDAO");
+        return ErrorCode::DatabaseError;
+    }
+
+    // 保存报告记录
+    if (!records.isEmpty())
+    {
+        for (const auto &record : records)
+        {
+            QVariantList params;
+            params << reportId << record.serverIp << record.serverId << record.latency;
+
+            QSqlQuery recordQuery = executeQuery(
+                "INSERT INTO report_record (report_id, server_ip, server_id, latency) VALUES (?, ?, ?, ?)",
+                params);
+
+            if (recordQuery.lastError().type() != QSqlError::NoError)
+            {
+                rollbackTransaction();
+                Logger::instance()->error(QString("Failed to insert report record: %1").arg(recordQuery.lastError().text()), "ReportDAO");
+                return ErrorCode::DatabaseError;
+            }
+        }
+    }
+
+    // 提交事务
+    if (!commitTransaction())
+    {
+        rollbackTransaction();
+        Logger::instance()->error("Failed to commit transaction", "ReportDAO");
+        return ErrorCode::TransactionFailed;
+    }
+
     // 记录审计日志
-    Logger::instance()->auditLog(report.userName, "CREATE_REPORT", 
-        QString("Report created - Location: %1, User: %2")
-        .arg(report.location, report.userName));
+    Logger::instance()->auditLog(report.userName, "CREATE_REPORT",
+                                 QString("Report created - Location: %1, User: %2, Records: %3")
+                                     .arg(report.location)
+                                     .arg(report.userName)
+                                     .arg(records.size()));
+
+    // 添加成功日志
+    Logger::instance()->info(QString("Successfully created report ID %1 with %2 records for user %3")
+                                 .arg(reportId)
+                                 .arg(records.size())
+                                 .arg(report.userName),
+                             "ReportDAO");
 
     return ErrorCode::Success;
 }
@@ -45,155 +100,143 @@ Report ReportDAO::getReportById(qint64 reportId)
 {
     QSqlQuery query = executeQuery(
         "SELECT report_id, check_location, user_name, created_time FROM latcheck_report WHERE report_id = ?",
-        {reportId}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to get database connection", "ReportDAO");
+        {reportId});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        // 修复：使用链式arg()调用来替换多个占位符
+        Logger::instance()->error(QString("Failed to get report by ID %1: %2").arg(reportId).arg(query.lastError().text()), "ReportDAO");
         return Report();
     }
 
-    if (query.next()) {
+    if (query.next())
+    {
         return buildReportFromQuery(query);
     }
-    
+
     QString error = QString("Failed to get report by ID: %1").arg(reportId);
     Logger::instance()->error(error, "ReportDAO");
     return Report();
 }
 
-QList<Report> ReportDAO::getReportsByUserName(const QString& userName, int limit, int offset)
+// 修复1：getReportsByUserName函数中的错误
+QList<Report> ReportDAO::getReportsByUserName(const QString &userName, int limit, int offset)
 {
     QList<Report> reports;
-    
+
     QSqlQuery query = executeQuery(
         "SELECT report_id, check_location, user_name, created_time FROM latcheck_report WHERE user_name = ? ORDER BY created_time DESC LIMIT ? OFFSET ?",
-        {userName, limit, offset}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to get database connection", "ReportDAO");
+        {userName, limit, offset});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        // 修复：使用链式arg()调用替换同时传递两个参数
+        Logger::instance()->error(QString("Failed to get reports by user name %1: %2").arg(userName).arg(query.lastError().text()), "ReportDAO");
         return reports;
     }
 
-    while (query.next()) {
+    while (query.next())
+    {
         reports.append(buildReportFromQuery(query));
     }
-    
+
     return reports;
 }
 
-QList<Report> ReportDAO::getReportsByLocation(const QString& location, int limit, int offset)
+// 修复2：getReportsByLocation函数中的错误
+QList<Report> ReportDAO::getReportsByLocation(const QString &location, int limit, int offset)
 {
     QList<Report> reports;
-    
+
     QSqlQuery query = executeQuery(
         "SELECT report_id, check_location, user_name, created_time FROM latcheck_report WHERE check_location = ? ORDER BY created_time DESC LIMIT ? OFFSET ?",
-        {location, limit, offset}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to get database connection", "ReportDAO");
+        {location, limit, offset});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        // 修复：使用链式arg()调用替换同时传递两个参数
+        Logger::instance()->error(QString("Failed to get reports by location %1: %2").arg(location).arg(query.lastError().text()), "ReportDAO");
         return reports;
     }
 
-    while (query.next()) {
+    while (query.next())
+    {
         reports.append(buildReportFromQuery(query));
     }
-    
+
     return reports;
 }
 
 QList<Report> ReportDAO::getAllReports(int limit, int offset)
 {
     QList<Report> reports;
-    
+
     QSqlQuery query = executeQuery(
         "SELECT report_id, check_location, user_name, created_time FROM latcheck_report ORDER BY created_time DESC LIMIT ? OFFSET ?",
-        {limit, offset}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to get database connection", "ReportDAO");
+        {limit, offset});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        Logger::instance()->error(QString("Failed to get all reports: %1").arg(query.lastError().text()), "ReportDAO");
         return reports;
     }
 
-    while (query.next()) {
+    while (query.next())
+    {
         reports.append(buildReportFromQuery(query));
     }
-    
+
     return reports;
 }
 
-ErrorCode ReportDAO::createReportDetail(qint64 reportId, const QList<ReportDetail>& details)
+// 修改 getReportRecords 方法
+QList<ReportRecord> ReportDAO::getReportRecords(qint64 reportId)
 {
-    if (details.isEmpty()) {
-        return ErrorCode::Success;
+    QList<ReportRecord> records;
+
+    QSqlQuery query = executeQuery(
+        "SELECT record_id, report_id, server_ip, server_id, latency FROM report_record WHERE report_id = ?",
+        {reportId});
+
+    if (query.lastError().type() != QSqlError::NoError)
+    {
+        Logger::instance()->error(QString("Failed to get report records by report ID %1: %2").arg(reportId).arg(query.lastError().text()), "ReportDAO");
+        return records;
     }
 
-    if (!beginTransaction()) {
-        Logger::instance()->error("Failed to start transaction", "ReportDAO");
-        return ErrorCode::TransactionFailed;
+    while (query.next())
+    {
+        records.append(buildReportRecordFromQuery(query));
     }
 
-    for (const auto& detail : details) {
-        QVariantList params;
-        params << reportId << detail.serverName << detail.serverIp 
-               << detail.latency << detail.status << detail.testTime << detail.additionalInfo;
-        
-        QSqlQuery query = executeQuery(
-            "INSERT INTO latcheck_report_detail (report_id, server_name, server_ip, latency, status, test_time, additional_info) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params
-        );
-        
-        if (!query.isValid()) {
-            rollbackTransaction();
-            Logger::instance()->error("Failed to insert report detail", "ReportDAO");
-            return ErrorCode::DatabaseError;
-        }
-    }
-
-    if (!commitTransaction()) {
-        Logger::instance()->error("Failed to commit transaction", "ReportDAO");
-        return ErrorCode::TransactionFailed;
-    }
-
-    return ErrorCode::Success;
+    return records;
 }
 
-QList<ReportDetail> ReportDAO::getReportDetails(qint64 reportId)
+// 修改 buildReportRecordFromQuery 方法
+ReportRecord ReportDAO::buildReportRecordFromQuery(const QSqlQuery &query)
 {
-    QList<ReportDetail> details;
-    
-    QSqlQuery query = executeQuery(
-        "SELECT record_id, report_id, item_name, item_value, description, created_time FROM latcheck_report_detail WHERE report_id = ?",
-        {reportId}
-    );
-    
-    if (!query.isValid()) {
-        Logger::instance()->error("Failed to get database connection", "ReportDAO");
-        return details;
-    }
-
-    while (query.next()) {
-        details.append(buildReportDetailFromQuery(query));
-    }
-    
-    return details;
+    ReportRecord record;
+    record.id = query.value("record_id").toLongLong();
+    record.reportId = query.value("report_id").toLongLong();
+    record.serverIp = static_cast<quint32>(query.value("server_ip").toUInt());
+    record.serverId = query.value("server_id").toInt();
+    record.latency = query.value("latency").toInt();
+    return record;
 }
 
 int ReportDAO::getReportCount()
 {
     QSqlQuery query = executeQuery("SELECT COUNT(*) FROM latcheck_report");
-    
-    if (query.next()) {
+
+    if (query.next())
+    {
         return query.value(0).toInt();
     }
-    
+
     return 0;
 }
 
-Report ReportDAO::buildReportFromQuery(const QSqlQuery& query)
+Report ReportDAO::buildReportFromQuery(const QSqlQuery &query)
 {
     Report report;
     report.id = query.value("report_id").toLongLong();
@@ -203,29 +246,17 @@ Report ReportDAO::buildReportFromQuery(const QSqlQuery& query)
     return report;
 }
 
-ReportDetail ReportDAO::buildReportDetailFromQuery(const QSqlQuery& query)
+bool ReportDAO::validateReportData(const Report &report)
 {
-    ReportDetail detail;
-    detail.id = query.value("record_id").toLongLong();
-    detail.reportId = query.value("report_id").toLongLong();
-    detail.serverName = query.value("server_name").toString();
-    detail.serverIp = query.value("server_ip").toString();
-    detail.latency = query.value("latency").toDouble();
-    detail.status = query.value("status").toString();
-    detail.testTime = query.value("test_time").toDateTime();
-    detail.additionalInfo = query.value("additional_info").toString();
-    return detail;
-}
+    if (report.location.isEmpty() || report.location.length() > 64)
+    {
+        return false;
+    }
 
-bool ReportDAO::validateReportData(const Report& report)
-{
-    if (report.location.isEmpty() || report.location.length() > 64) {
+    if (report.userName.isEmpty() || report.userName.length() > 32)
+    {
         return false;
     }
-    
-    if (report.userName.isEmpty() || report.userName.length() > 32) {
-        return false;
-    }
-    
+
     return true;
 }

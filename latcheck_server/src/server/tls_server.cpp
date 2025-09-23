@@ -21,7 +21,7 @@
 #include <QTimer>
 
 TlsServer::TlsServer(QObject *parent)
-    : QTcpServer(parent), config_manager_(nullptr), user_dao_(nullptr), report_dao_(nullptr), 
+    : QTcpServer(parent), config_manager_(nullptr), user_dao_(nullptr), report_dao_(nullptr),
       cleanup_timer_(new QTimer(this)), max_connections_(100), connection_timeout_(300) // 5分钟
       ,
       auth_timeout_(30), // 30秒
@@ -41,7 +41,7 @@ bool TlsServer::startServer(const QString &host, quint16 port)
 {
     if (!initializeSsl())
     {
-        Logger::instance()->error("TlsServer", "Failed to initialize SSL configuration");
+        Logger::instance()->error("Failed to initialize SSL configuration");
         return false;
     }
 
@@ -67,28 +67,28 @@ bool TlsServer::startServer(const QString &host, quint16 port)
         address.setAddress(host);
         if (address.isNull())
         {
-            Logger::instance()->error("TlsServer",
-                                      QString("Invalid host address: %1").arg(host));
+            Logger::instance()->error(
+                QString("Invalid host address: %1").arg(host));
             return false;
         }
     }
 
     if (!listen(address, port))
     {
-        Logger::instance()->error("TlsServer",
-                                  QString("Failed to start server on %1:%2 - %3")
-                                      .arg(host)
-                                      .arg(port)
-                                      .arg(errorString()));
+        Logger::instance()->error(
+            QString("Failed to start server on %1:%2 - %3")
+                .arg(host)
+                .arg(port)
+                .arg(errorString()));
         return false;
     }
 
     cleanup_timer_->start();
-    Logger::instance()->info("TlsServer",
-                             QString("TLS Server started on %1:%2 (listening on %3)")
-                                 .arg(host)
-                                 .arg(port)
-                                 .arg(serverAddress().toString()));
+    Logger::instance()->info(
+        QString("TLS Server started on %1:%2 (listening on %3)")
+            .arg(host)
+            .arg(port)
+            .arg(serverAddress().toString()));
     return true;
 }
 
@@ -118,7 +118,7 @@ void TlsServer::stopServer()
         clients_.clear();
 
         cleanup_timer_->stop();
-        Logger::instance()->info("TlsServer", "TLS Server stopped");
+        Logger::instance()->info("TLS Server stopped");
     }
 }
 
@@ -142,25 +142,29 @@ int TlsServer::getAuthenticatedUserCount() const
     return count;
 }
 
-void TlsServer::setConfigManager(ConfigManager *config)
+void TlsServer::setConfigManager(QSharedPointer<ConfigManager> config)
 {
     config_manager_ = config;
 }
 
-void TlsServer::setUserDAO(UserDAO *userDAO)
+void TlsServer::setUserDAO(QSharedPointer<UserDAO> userDAO)
 {
     user_dao_ = userDAO;
 }
 
-void TlsServer::setReportDAO(ReportDAO *reportDAO)
+void TlsServer::setReportDAO(QSharedPointer<ReportDAO> reportDAO)
 {
     report_dao_ = reportDAO;
 }
 
-// 添加缺失的 setServerDAO 方法实现
-void TlsServer::setServerDAO(ServerDAO *serverDAO)
+void TlsServer::setServerDAO(QSharedPointer<ServerDAO> serverDAO)
 {
     server_dao_ = serverDAO;
+}
+
+void TlsServer::setAuthManager(QSharedPointer<AuthManager> authManager)
+{
+    auth_manager_ = authManager;
 }
 
 // 修复incomingConnection方法
@@ -173,10 +177,10 @@ void TlsServer::incomingConnection(qintptr socketDescriptor)
         tempSocket.setSocketDescriptor(socketDescriptor);
         QString clientIp = tempSocket.peerAddress().toString();
         quint16 clientPort = tempSocket.peerPort();
-        Logger::instance()->info("TlsServer",
-                                 QString("Connection rejected - Max connections reached (%1:%2)")
-                                     .arg(clientIp)
-                                     .arg(clientPort));
+        Logger::instance()->info(
+            QString("Connection rejected - Max connections reached (%1:%2)")
+                .arg(clientIp)
+                .arg(clientPort));
         tempSocket.disconnectFromHost();
         return;
     }
@@ -184,7 +188,7 @@ void TlsServer::incomingConnection(qintptr socketDescriptor)
     QSslSocket *sslSocket = new QSslSocket(this);
     if (!sslSocket->setSocketDescriptor(socketDescriptor))
     {
-        Logger::instance()->error("TlsServer", "Failed to set socket descriptor");
+        Logger::instance()->error("Failed to set socket descriptor");
         delete sslSocket;
         return;
     }
@@ -192,11 +196,11 @@ void TlsServer::incomingConnection(qintptr socketDescriptor)
     // 获取并记录客户端连接信息
     QString clientIp = sslSocket->peerAddress().toString();
     quint16 clientPort = sslSocket->peerPort();
-    Logger::instance()->info("TlsServer",
-                             QString("New incoming connection: %1:%2 (total connections: %3)")
-                                 .arg(clientIp)
-                                 .arg(clientPort)
-                                 .arg(getConnectionCount() + 1));
+    Logger::instance()->info(
+        QString("New incoming connection: %1:%2 (total connections: %3)")
+            .arg(clientIp)
+            .arg(clientPort)
+            .arg(getConnectionCount() + 1));
 
     // 创建会话
     ClientSession *session = new ClientSession();
@@ -219,7 +223,7 @@ void TlsServer::incomingConnection(qintptr socketDescriptor)
     connect(session->loginTimer, &QTimer::timeout, [this, sslSocket, session]()
             {
         if (session && session->state != ClientState::Authenticated) {
-            Logger::instance()->warning("TlsServer", "Login timeout - disconnecting client");
+            Logger::instance()->warning("Login timeout - disconnecting session");
             if (sslSocket->isOpen()) {
                 sslSocket->disconnectFromHost();
             }
@@ -252,10 +256,10 @@ void TlsServer::incomingConnection(qintptr socketDescriptor)
     // 启动登录超时定时器
     session->loginTimer->start();
 
-    Logger::instance()->debug("TlsServer",
-                              QString("SSL handshake initiated for client: %1:%2")
-                                  .arg(clientIp)
-                                  .arg(clientPort));
+    Logger::instance()->debug(
+        QString("SSL handshake initiated for session: %1:%2")
+            .arg(clientIp)
+            .arg(clientPort));
 }
 
 void TlsServer::onClientDisconnected()
@@ -273,12 +277,12 @@ void TlsServer::onClientDisconnected()
         quint16 clientPort = socket->peerPort();
         QString userName = session->userName.isEmpty() ? "(unauthenticated)" : session->userName;
 
-        Logger::instance()->info("TlsServer",
-                                 QString("Client disconnected: %1:%2 (user: %3, total connections: %4)")
-                                     .arg(clientIp)
-                                     .arg(clientPort)
-                                     .arg(userName)
-                                     .arg(clients_.size() - 1));
+        Logger::instance()->info(
+            QString("Client disconnected: %1:%2 (user: %3, total connections: %4)")
+                .arg(clientIp)
+                .arg(clientPort)
+                .arg(userName)
+                .arg(clients_.size() - 1));
 
         delete session;
     }
@@ -301,9 +305,9 @@ void TlsServer::onCleanupTimer()
             session->connectTime.secsTo(now) > auth_timeout_)
         {
 
-            Logger::instance()->warning("TlsServer",
-                                        QString("Authentication timeout for client from %1")
-                                            .arg(session->socket->peerAddress().toString()));
+            Logger::instance()->warning(
+                QString("Authentication timeout for session from %1")
+                    .arg(session->socket->peerAddress().toString()));
 
             session->socket->disconnectFromHost();
             delete session;
@@ -314,8 +318,8 @@ void TlsServer::onCleanupTimer()
         // 清理长时间不活跃的连接
         if (session->lastActiveTime.secsTo(now) > connection_timeout_)
         {
-            Logger::instance()->info("TlsServer",
-                                     QString("Connection timeout for user: %1").arg(session->userName));
+            Logger::instance()->info(
+                QString("Connection timeout for user: %1").arg(session->userName));
 
             session->socket->disconnectFromHost();
             delete session;
@@ -341,15 +345,15 @@ bool TlsServer::initializeSsl()
     QFile certFile(certPath);
     if (!certFile.open(QIODevice::ReadOnly))
     {
-        Logger::instance()->error("TlsServer",
-                                  QString("Failed to open certificate file: %1").arg(certPath));
+        Logger::instance()->error(
+            QString("Failed to open certificate file: %1").arg(certPath));
         return false;
     }
 
     QSslCertificate cert(&certFile, QSsl::Pem);
     if (cert.isNull())
     {
-        Logger::instance()->error("TlsServer", "Invalid certificate");
+        Logger::instance()->error("Invalid certificate");
         return false;
     }
 
@@ -357,15 +361,15 @@ bool TlsServer::initializeSsl()
     QFile keyFile(keyPath);
     if (!keyFile.open(QIODevice::ReadOnly))
     {
-        Logger::instance()->error("TlsServer",
-                                  QString("Failed to open private key file: %1").arg(keyPath));
+        Logger::instance()->error(
+            QString("Failed to open private key file: %1").arg(keyPath));
         return false;
     }
 
     QSslKey key(&keyFile, QSsl::Rsa, QSsl::Pem);
     if (key.isNull())
     {
-        Logger::instance()->error("TlsServer", "Invalid private key");
+        Logger::instance()->error("Invalid private key");
         return false;
     }
 
@@ -390,8 +394,8 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
     QString userName = QString::fromUtf8(loginData.userName);
     QString plainPassword = QString::fromUtf8(loginData.password);
 
-    Logger::instance()->debug("TlsServer",
-                              QString("Processing login request for user: %1").arg(userName));
+    Logger::instance()->debug(
+        QString("Processing login request for user: %1").arg(userName));
 
     // 获取用户信息（包含密码哈希和盐值）
     User user = user_dao_->getUserByUsername(userName);
@@ -399,8 +403,8 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
     if (user.id == 0)
     {
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::InvalidUser);
-        Logger::instance()->warning("TlsServer",
-                                    QString("Login failed - User not found: %1").arg(userName));
+        Logger::instance()->warning(
+            QString("Login failed - User not found: %1").arg(userName));
         return;
     }
 
@@ -408,8 +412,8 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
     if (user.status != UserStatus::Active)
     {
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::UserDisabled);
-        Logger::instance()->warning("TlsServer",
-                                    QString("Login failed - User disabled: %1").arg(userName));
+        Logger::instance()->warning(
+            QString("Login failed - User disabled: %1").arg(userName));
         return;
     }
 
@@ -417,8 +421,8 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
     if (!PasswordUtils::verifyPassword(plainPassword, user.passwordHash, user.salt))
     {
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::InvalidPassword);
-        Logger::instance()->warning("TlsServer",
-                                    QString("Login failed - Invalid password for user: %1").arg(userName));
+        Logger::instance()->warning(
+            QString("Login failed - Invalid password for user: %1").arg(userName));
         return;
     }
 
@@ -426,8 +430,8 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
     if (user.role != UserRole::ReportUploader && user.role != UserRole::Admin)
     {
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::PermissionDenied);
-        Logger::instance()->warning("TlsServer",
-                                    QString("Login failed - Insufficient permissions: %1").arg(userName));
+        Logger::instance()->warning(
+            QString("Login failed - Insufficient permissions: %1").arg(userName));
         return;
     }
 
@@ -447,46 +451,114 @@ void TlsServer::handleLoginRequest(ClientSession *session, const QByteArray &dat
 
     // 发送成功响应 - 使用序列化处理字节序
     quint32 code = qToBigEndian(static_cast<quint32>(ErrorCode::Success));
-    QByteArray response(reinterpret_cast<const char*>(&code), sizeof(code));
+    QByteArray response(reinterpret_cast<const char *>(&code), sizeof(code));
     sendResponse(session, MessageType::LOGIN_OK, response);
 
-    Logger::instance()->info("TlsServer",
-                             QString("User logged in successfully: %1").arg(userName));
-}
-void TlsServer::setAuthManager(AuthManager* authManager) {
-    auth_manager_ = authManager;
+    Logger::instance()->info(
+        QString("User logged in successfully: %1").arg(userName));
 }
 void TlsServer::handleReportRequest(ClientSession *session, const QByteArray &data)
 {
+    // 检查report_dao_是否有效
     if (!report_dao_)
     {
-        sendErrorResponse(session, MessageType::REPORT_FAIL, ErrorCode::ServerInternal);
+        Logger::instance()->error("ReportDAO is not set");
+        sendResponse(session, MessageType::REPORT_FAIL, QByteArray());
         return;
     }
 
-    ReportRequestData reportData = MessageProtocol::deserializeReportRequest(data);
-
-    // 创建报告对象
-    Report report;
-    report.userName = session->userName;
-    report.location = reportData.location;
-    report.createdAt = QDateTime::currentDateTime();
-
-    // 保存报告
-    ErrorCode result = report_dao_->createReport(report);
-    if (result != ErrorCode::Success)
+    try
     {
-        sendErrorResponse(session, MessageType::REPORT_FAIL, result);
-        return;
-    }
+        ReportRequestData reportData = MessageProtocol::deserializeReportRequest(data);
 
-    // 发送成功响应
-    QJsonObject response;
-    response["status"] = "success";
-    response["message"] = "Report uploaded successfully";
-    response["reportId"] = report.id;
-    QJsonDocument responseDoc(response);
-    sendResponse(session, MessageType::REPORT_OK, responseDoc.toJson());
+        // 创建报告对象
+        Report report;
+        report.userName = session->userName;
+        report.location = reportData.location;
+        report.createdAt = QDateTime::currentDateTime();
+
+        // 检查客户端会话中是否有服务器映射
+        if (session->serverIpMap.isEmpty())
+        {
+            Logger::instance()->warning(
+                QString("No server IP mapping found in session for user %1")
+                    .arg(session->userName),
+                "TlsServer");
+
+            // 如果会话中没有映射，检查是否有服务器列表并创建映射
+            if (!session->servers.isEmpty())
+            {
+                Logger::instance()->info("Creating server IP mapping from session server list", "TlsServer");
+                for (const auto &server : session->servers)
+                {
+                    session->serverIpMap[server.serverId] = server.ipAddr;
+                }
+            }
+            else
+            {
+                // 如果两者都没有，则从数据库获取（作为后备方案）
+                Logger::instance()->warning("Fetching server list from database as fallback", "TlsServer");
+                QList<ServerInfo> servers = getTestServerList();
+                session->servers = servers;
+                for (const auto &server : servers)
+                {
+                    session->serverIpMap[server.serverId] = server.ipAddr;
+                }
+            }
+        }
+
+        // 转换LatencyRecord为ReportRecord
+        QList<ReportRecord> reportRecords;
+        for (const LatencyRecord &record : reportData.records)
+        {
+            ReportRecord reportRecord;
+            reportRecord.serverId = record.serverId;
+            reportRecord.latency = record.latency;
+
+            // 使用映射表查找IP地址
+            quint32 serverIp = 0;
+            if (session->serverIpMap.contains(record.serverId))
+            {
+                serverIp = session->serverIpMap.value(record.serverId);
+            }
+            else
+            {
+                // 如果找不到 IP，记录警告日志
+                Logger::instance()->warning(QString("Failed to find IP for server ID: %1 when processing report from user: %2")
+                                                .arg(record.serverId)
+                                                .arg(session->userName));
+            }
+
+            reportRecord.serverIp = serverIp;
+            reportRecords.append(reportRecord);
+        }
+
+        // 保存报告和记录（使用事务）
+        ErrorCode result = report_dao_->createReport(report, reportRecords);
+
+        if (result != ErrorCode::Success)
+        {
+            Logger::instance()->warning(QString("Failed to create report for user %1: %2")
+                                            .arg(session->userName)
+                                            .arg(static_cast<int>(result)),
+                                        "TlsServer");
+            sendErrorResponse(session, MessageType::REPORT_FAIL, result);
+        }
+        else
+        {
+            Logger::instance()->info(QString("Report created successfully for user %1")
+                                         .arg(session->userName),
+                                     "TlsServer");
+            sendErrorResponse(session, MessageType::REPORT_OK, result);
+        }
+    }
+    catch (const std::exception &e)
+    {
+        Logger::instance()->error(QString("Exception handling report request: %1")
+                                      .arg(e.what()),
+                                  "TlsServer");
+        sendErrorResponse(session, MessageType::REPORT_FAIL, ErrorCode::ServerInternal);
+    }
 }
 
 bool TlsServer::checkClientPermission(const QString &userName, int requiredLevel)
@@ -525,15 +597,15 @@ void TlsServer::sendErrorResponse(ClientSession *session, MessageType type, Erro
 
     // 使用序列化方法处理字节序
     quint32 code = qToBigEndian(static_cast<quint32>(errorCode));
-    QByteArray response(reinterpret_cast<const char*>(&code), sizeof(code));
-    
+    QByteArray response(reinterpret_cast<const char *>(&code), sizeof(code));
+
     // 使用sendResponse发送
     sendResponse(session, type, response);
 
-    Logger::instance()->debug("TlsServer",
-                              QString("Sent error response: type=%1, code=%2")
-                                  .arg(static_cast<int>(type))
-                                  .arg(static_cast<int>(errorCode)));
+    Logger::instance()->debug(
+        QString("Sent error response: type=%1, code=%2")
+            .arg(static_cast<int>(type))
+            .arg(static_cast<int>(errorCode)));
 }
 
 // 在文件中添加新函数实现
@@ -565,14 +637,16 @@ QString TlsServer::getSslProtocolName(QSslSocket *socket)
 void TlsServer::onSslReady()
 {
     QSslSocket *socket = qobject_cast<QSslSocket *>(sender());
-    if (!socket) {
-        Logger::instance()->error("TlsServer", "onSslReady: Invalid socket");
+    if (!socket)
+    {
+        Logger::instance()->error("onSslReady: Invalid socket");
         return;
     }
 
     ClientSession *session = findSessionBySocket(socket);
-    if (!session) {
-        Logger::instance()->error("TlsServer", "onSslReady: Session not found");
+    if (!session)
+    {
+        Logger::instance()->error("onSslReady: Session not found");
         return;
     }
 
@@ -582,18 +656,19 @@ void TlsServer::onSslReady()
     QString protocol = getSslProtocolName(socket);
     QSslCipher cipher = socket->sessionCipher();
 
-    Logger::instance()->info("TlsServer",
-                             QString("Client connected - SSL handshake completed: %1:%2, Protocol: %3, Cipher: %4")
-                                 .arg(clientIp)
-                                 .arg(clientPort)
-                                 .arg(protocol)
-                                 .arg(cipher.name()));
-    
+    Logger::instance()->info(
+        QString("Client connected - SSL handshake completed: %1:%2, Protocol: %3, Cipher: %4")
+            .arg(clientIp)
+            .arg(clientPort)
+            .arg(protocol)
+            .arg(cipher.name()));
+
     // 添加调试信息，确认socket处于可读状态
-    if (socket->bytesAvailable() > 0) {
-        Logger::instance()->debug("TlsServer",
-                                 QString("Data already available after SSL handshake: %1 bytes")
-                                     .arg(socket->bytesAvailable()));
+    if (socket->bytesAvailable() > 0)
+    {
+        Logger::instance()->debug(
+            QString("Data already available after SSL handshake: %1 bytes")
+                .arg(socket->bytesAvailable()));
     }
 }
 
@@ -601,21 +676,24 @@ void TlsServer::onSslReady()
 void TlsServer::onDataReceived()
 {
     QSslSocket *socket = qobject_cast<QSslSocket *>(sender());
-    if (!socket) {
-        Logger::instance()->error("TlsServer", "onDataReceived: Invalid socket");
+    if (!socket)
+    {
+        Logger::instance()->error("onDataReceived: Invalid socket");
         return;
     }
 
     ClientSession *session = findSessionBySocket(socket);
-    if (!session) {
-        Logger::instance()->error("TlsServer", "onDataReceived: Session not found");
+    if (!session)
+    {
+        Logger::instance()->error("onDataReceived: Session not found");
         socket->disconnectFromHost();
         return;
     }
 
     // 确保socket有效且可读
-    if (!socket->isValid() || !socket->isReadable()) {
-        Logger::instance()->error("TlsServer", "onDataReceived: Socket is not valid or readable");
+    if (!socket->isValid() || !socket->isReadable())
+    {
+        Logger::instance()->error("onDataReceived: Socket is not valid or readable");
         return;
     }
 
@@ -623,41 +701,45 @@ void TlsServer::onDataReceived()
     QString clientIp = socket->peerAddress().toString();
     quint16 clientPort = socket->peerPort();
 
-    Logger::instance()->info("TlsServer", // 提高日志级别以便更容易看到数据接收
-                           QString("Data received from %1:%2 (size: %3 bytes)")
-                               .arg(clientIp)
-                               .arg(clientPort)
-                               .arg(data.size()));
+    Logger::instance()->info( // 提高日志级别以便更容易看到数据接收
+        QString("Data received from %1:%2 (size: %3 bytes)")
+            .arg(clientIp)
+            .arg(clientPort)
+            .arg(data.size()));
 
     // 添加原始数据的十六进制输出用于调试
-    Logger::instance()->debug("TlsServer",
-                              QString("Raw data (hex): %1").arg(QString(data.toHex(' '))));
+    // Logger::instance()->debug(
+    //     QString("Raw data (hex): %1").arg(QString(data.toHex(' '))));
 
     session->buffer.append(data);
     updateClientActivity(session); // 每次收到数据都更新活动时间
 
     // 处理消息
-    while (true) {
+    while (true)
+    {
         // 检查缓冲区是否至少有消息头大小
-        if (session->buffer.size() < static_cast<qsizetype>(sizeof(MessageHeader))) {
-            Logger::instance()->debug("TlsServer", "Not enough data for message header");
+        if (session->buffer.size() < static_cast<qsizetype>(sizeof(MessageHeader)))
+        {
+            Logger::instance()->debug("Not enough data for message header");
             break;
         }
 
         // 尝试解析消息头
-        try {
+        try
+        {
             MessageHeader header = MessageProtocol::deserializeHeader(session->buffer.left(sizeof(MessageHeader)));
             quint32 totalSize = sizeof(MessageHeader) + header.dataLength;
 
-            Logger::instance()->debug("TlsServer",
-                                      QString("Message header: type=%1, dataLength=%2, totalSize=%3")
-                                          .arg(header.msgType)
-                                          .arg(header.dataLength)
-                                          .arg(totalSize));
+            Logger::instance()->debug(
+                QString("Message header: type=%1, dataLength=%2, totalSize=%3")
+                    .arg(header.msgType)
+                    .arg(header.dataLength)
+                    .arg(totalSize));
 
             // 检查缓冲区是否有完整消息
-            if (session->buffer.size() < static_cast<qsizetype>(totalSize)) {
-                Logger::instance()->debug("TlsServer", "Waiting for more data");
+            if (session->buffer.size() < static_cast<qsizetype>(totalSize))
+            {
+                Logger::instance()->debug("Waiting for more data");
                 break;
             }
 
@@ -665,15 +747,19 @@ void TlsServer::onDataReceived()
             QByteArray payload = session->buffer.mid(sizeof(MessageHeader), header.dataLength);
             processMessage(session, header, payload);
             session->buffer.remove(0, totalSize);
-        } catch (const std::exception &e) {
-            Logger::instance()->error("TlsServer",
-                                     QString("Error processing message: %1").arg(e.what()));
+        }
+        catch (const std::exception &e)
+        {
+            Logger::instance()->error(
+                QString("Error processing message: %1").arg(e.what()));
             // 出现严重错误，清空缓冲区并断开连接
             session->buffer.clear();
             socket->disconnectFromHost();
             break;
-        } catch (...) {
-            Logger::instance()->error("TlsServer", "Unknown error processing message");
+        }
+        catch (...)
+        {
+            Logger::instance()->error("Unknown error processing message");
             session->buffer.clear();
             socket->disconnectFromHost();
             break;
@@ -684,17 +770,18 @@ void TlsServer::onDataReceived()
 // 增强updateClientActivity方法以记录活动
 void TlsServer::updateClientActivity(ClientSession *session)
 {
-    if (!session) return;
-    
+    if (!session)
+        return;
+
     session->lastActiveTime = QDateTime::currentDateTime();
-    
+
     // 添加socket非空检查，防止段错误
-    if (session->socket && session->socket->isValid()) 
+    if (session->socket && session->socket->isValid())
     {
         Logger::instance()->debug(
-                           QString("Client activity updated: %1:%2")
-                               .arg(session->socket->peerAddress().toString())
-                               .arg(session->socket->peerPort()));
+            QString("Client activity updated: %1:%2")
+                .arg(session->socket->peerAddress().toString())
+                .arg(session->socket->peerPort()));
     }
 }
 void TlsServer::onSslErrors(const QList<QSslError> &errors)
@@ -708,8 +795,8 @@ void TlsServer::onSslErrors(const QList<QSslError> &errors)
     // 记录SSL错误
     for (const QSslError &error : errors)
     {
-        Logger::instance()->warning("TlsServer",
-                                    QString("SSL Error: %1").arg(error.errorString()));
+        Logger::instance()->warning(
+            QString("SSL Error: %1").arg(error.errorString()));
     }
 
     // 对于自签名证书等可接受的错误，可以选择忽略
@@ -736,34 +823,34 @@ void TlsServer::processMessage(ClientSession *session, const MessageHeader &head
     quint16 clientPort = session->socket->peerPort();
     QString userName = session->userName.isEmpty() ? "(unauthenticated)" : session->userName;
 
-    Logger::instance()->debug("TlsServer",
-                              QString("Processing message from %1:%2 (user: %3, type: %4, size: %5 bytes)")
-                                  .arg(clientIp)
-                                  .arg(clientPort)
-                                  .arg(userName)
-                                  .arg(static_cast<int>(msgType))
-                                  .arg(header.dataLength));
+    Logger::instance()->debug(
+        QString("Processing message from %1:%2 (user: %3, type: %4, size: %5 bytes)")
+            .arg(clientIp)
+            .arg(clientPort)
+            .arg(userName)
+            .arg(static_cast<int>(msgType))
+            .arg(header.dataLength));
 
     switch (msgType)
     {
     case MessageType::LOGIN_REQUEST:
-        Logger::instance()->debug("TlsServer", "Handling LOGIN_REQUEST message");
+        Logger::instance()->debug("Handling LOGIN_REQUEST message");
         handleLoginRequest(session, data);
         break;
     case MessageType::LIST_REQUEST:
-        Logger::instance()->debug("TlsServer", "Handling LIST_REQUEST message");
+        Logger::instance()->debug("Handling LIST_REQUEST message");
         handleListRequest(session);
         break;
     case MessageType::REPORT_REQUEST:
-        Logger::instance()->debug("TlsServer", "Handling REPORT_REQUEST message");
+        Logger::instance()->debug("Handling REPORT_REQUEST message");
         handleReportRequest(session, data);
         break;
     default:
-        Logger::instance()->warning("TlsServer",
-                                    QString("Unknown message type: %1 from %2:%3")
-                                        .arg(static_cast<int>(header.msgType))
-                                        .arg(clientIp)
-                                        .arg(clientPort));
+        Logger::instance()->warning(
+            QString("Unknown message type: %1 from %2:%3")
+                .arg(static_cast<int>(header.msgType))
+                .arg(clientIp)
+                .arg(clientPort));
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::InvalidParameter);
         break;
     }
@@ -777,7 +864,28 @@ void TlsServer::handleListRequest(ClientSession *session)
         return;
     }
 
+    // 获取服务器列表并创建ID到IP的映射
     QList<ServerInfo> servers = getTestServerList();
+
+    // 保存服务器列表到客户端会话中
+    session->servers = servers;
+
+    // 创建并保存服务器ID到IP的映射
+    QMap<quint32, quint32> ipMap;
+    for (const auto &server : servers)
+    {
+        ipMap[server.serverId] = server.ipAddr;
+    }
+    session->serverIpMap = ipMap;
+
+    // 记录日志
+    Logger::instance()->info(
+        QString("Stored %1 servers and their IP mapping in session for user %2")
+            .arg(servers.size())
+            .arg(session->userName),
+        "TlsServer");
+
+    // 发送服务器列表响应
     QByteArray response = MessageProtocol::serializeListResponse(servers);
     sendResponse(session, MessageType::LIST_RESPONSE, response);
 }
@@ -786,18 +894,19 @@ void TlsServer::handleListRequest(ClientSession *session)
 QList<ServerInfo> TlsServer::getTestServerList()
 {
     // 如果ServerDAO未设置，返回空列表并记录错误
-    if (!server_dao_) {
-        Logger::instance()->error("TlsServer", "ServerDAO not set, cannot retrieve server list");
+    if (!server_dao_)
+    {
+        Logger::instance()->error("ServerDAO not set, cannot retrieve server list");
         return QList<ServerInfo>();
     }
-    
+
     // 从数据库获取活跃的服务器列表
     QList<ServerInfo> servers = server_dao_->getActiveServers();
-    
-    Logger::instance()->info("TlsServer", 
-                            QString("Retrieved %1 active servers from database")
-                                .arg(servers.size()));
-    
+
+    Logger::instance()->info(
+        QString("Retrieved %1 active servers from database")
+            .arg(servers.size()));
+
     return servers;
 }
 

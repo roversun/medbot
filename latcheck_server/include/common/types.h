@@ -11,7 +11,8 @@
 #include "error_codes.h"
 
 // 用户状态枚举
-enum class UserStatus {
+enum class UserStatus
+{
     Active,
     Inactive,
     Suspended,
@@ -19,21 +20,23 @@ enum class UserStatus {
 };
 
 // 用户角色枚举 - 移到这里，在User结构体之前
-enum class UserRole {
-    Admin,           // 管理员
-    ReportUploader,  // 报告上传者
-    ReportViewer     // 报告查询者
+enum class UserRole
+{
+    Admin,          // 管理员
+    ReportUploader, // 报告上传者
+    ReportViewer    // 报告查询者
 };
 
 // 用户结构
-struct User {
+struct User
+{
     qint64 id = 0;
     QString userName;
     QString passwordHash;
-    QString salt; 
+    QString salt;
     QString email;
-    UserRole role = UserRole::ReportUploader;  // 默认为报告上传者
-    UserStatus status = UserStatus::Inactive;  // 改回 UserStatus 类型
+    UserRole role = UserRole::ReportUploader; // 默认为报告上传者
+    UserStatus status = UserStatus::Inactive; // 改回 UserStatus 类型
     QDateTime createdAt;
     QDateTime updatedAt;
     QDateTime lastLoginAt;
@@ -42,7 +45,8 @@ struct User {
 };
 
 // 报告状态枚举 - 原UserRole的位置
-enum class ReportStatus {
+enum class ReportStatus
+{
     Pending,
     Processing,
     Completed,
@@ -50,51 +54,52 @@ enum class ReportStatus {
 };
 
 // 报告详细信息结构
-struct ReportDetail {
-    qint64 id = 0;
-    qint64 reportId = 0;
-    QString serverName;
-    QString serverIp;
-    double latency = 0.0;
-    QString status;
-    QDateTime testTime;
-    QString additionalInfo;
+struct ReportRecord
+{
+    qint64 id = 0;        // 对应表中的 record_id
+    qint64 reportId = 0;  // 对应表中的 report_id
+    quint32 serverIp = 0; // 对应表中的 server_ip
+    quint32 serverId = 0; // 对应表中的 server_id
+    int latency = 10000;  // 对应表中的 latency，默认值10000
 };
 
 // 报告结构
-struct Report {
+struct Report
+{
     qint64 id = 0;
     QString userName;
     QString location;
     ReportStatus status = ReportStatus::Pending;
     QDateTime createdAt;
     QDateTime updatedAt;
-    QList<ReportDetail> details;
+    QList<ReportRecord> details;
 };
 
 // 数据库配置结构
-struct DatabaseConfig {
+struct DatabaseConfig
+{
     QString host = "localhost";
     int port = 3306;
     QString database = "latcheck";
     QString username = "root";
     QString password;
-    int minConnections = 5;      // 添加最小连接数
+    int minConnections = 5; // 添加最小连接数
     int maxConnections = 10;
     int connectionTimeout = 30;
-    int idleTimeout = 300;       // 添加空闲超时时间（秒）
+    int idleTimeout = 300; // 添加空闲超时时间（秒）
     QString charset = "utf8mb4";
     bool enableSSL = false;
     QString sslCert;
     QString sslKey;
     QString sslCA;
-    
+
     // 修复初始化顺序，按声明顺序初始化
     DatabaseConfig() : port(3306), minConnections(5), maxConnections(10), connectionTimeout(30), idleTimeout(300), charset("utf8mb4"), enableSSL(false) {}
 };
 
 // 服务器配置结构
-struct ServerConfig {
+struct ServerConfig
+{
     QString host = "0.0.0.0";
     int port = 8443;
     int maxConnections = 1000;
@@ -106,7 +111,8 @@ struct ServerConfig {
 };
 
 // API配置结构
-struct ApiConfig {
+struct ApiConfig
+{
     QString host = "0.0.0.0";
     int port = 8080;
     bool enableSSL = false;
@@ -118,7 +124,8 @@ struct ApiConfig {
 };
 
 // TLS配置结构
-struct TlsConfig {
+struct TlsConfig
+{
     QString certificatePath;
     QString privateKeyPath;
     QString protocol = "TLSv1.2";
@@ -128,7 +135,8 @@ struct TlsConfig {
 };
 
 // 日志配置结构
-struct LogConfig {
+struct LogConfig
+{
     QString level = "INFO";
     QString filePath;
     int maxFileSize = 10485760; // 10MB
@@ -139,13 +147,14 @@ struct LogConfig {
 };
 
 // API响应结构
-struct ApiResponse {
+struct ApiResponse
+{
     int statusCode = 200;
     QString message;
     QJsonObject data;
-    
+
     ApiResponse() = default;
-    ApiResponse(int code, const QString& msg, const QJsonObject& responseData = QJsonObject())
+    ApiResponse(int code, const QString &msg, const QJsonObject &responseData = QJsonObject())
         : statusCode(code), message(msg), data(responseData) {}
 };
 

@@ -44,7 +44,7 @@ LoginRequestData MessageProtocol::deserializeLoginRequest(const QByteArray &data
 
     if (data.size() != sizeof(LoginRequestData))
     {
-        Logger::instance()->error("Invalid login request data size", "MessageProtocol");
+        Logger::instance()->error("Invalid login request data size");
         return loginData;
     }
 
@@ -100,82 +100,67 @@ ListResponseData MessageProtocol::deserializeListResponse(const QByteArray &data
 
 QByteArray MessageProtocol::serializeReportRequest(const QString &location, const QList<LatencyRecord> &records)
 {
-    ReportRequestData data;
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
 
-    // 设置位置信息
-    data.location = location;
-    data.locationLength = static_cast<quint32>(location.toUtf8().size());
-    data.recordCount = static_cast<quint32>(records.size());
-    data.records = records;
-
-    QByteArray result;
-
-    // 序列化位置长度
-    result.append(reinterpret_cast<const char *>(&data.locationLength), sizeof(data.locationLength));
-
-    // 序列化位置信息
+    // 写入固定128字节位置信息
+    char locationBuffer[LOCATION_LEN] = {0}; // 初始化全部为0
     QByteArray locationBytes = location.toUtf8();
-    result.append(locationBytes);
+    // 复制位置信息，最多复制128字节
+    qint64 copySize = qMin(static_cast<qint64>(locationBytes.size()), static_cast<qint64>(127)); // 留一个字节给结束符
+    memcpy(locationBuffer, locationBytes.constData(), copySize);
+    // 确保字符串以null结束
+    locationBuffer[copySize] = '\0';
 
-    // 序列化记录数量
-    result.append(reinterpret_cast<const char *>(&data.recordCount), sizeof(data.recordCount));
+    // 写入128字节到流
+    stream.writeRawData(locationBuffer, LOCATION_LEN);
 
-    // 序列化延时记录
-    for (const auto &record : records)
+    // 写入记录数量
+    stream << static_cast<quint32>(records.size());
+
+    // 写入每个延时记录
+    for (const LatencyRecord &record : records)
     {
-        result.append(reinterpret_cast<const char *>(&record), sizeof(LatencyRecord));
+        stream << record.serverId << record.latency;
     }
 
-    return result;
+    return data;
 }
-
 ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray &data)
 {
     ReportRequestData reportData;
-
-    // 修复第160行的警告
-    if (static_cast<size_t>(data.size()) < sizeof(quint32) + sizeof(reportData.recordCount))
+    // 检查数据长度是否足够（128字节位置信息 + 4字节记录数量 + 至少0条记录）
+    if (data.size() < LOCATION_LEN + 4)
     {
-        Logger::instance()->error("Invalid report request data size", "MessageProtocol");
         return reportData;
     }
 
-    const char *ptr = data.constData();
+    QDataStream stream(data);
+    stream.setByteOrder(QDataStream::BigEndian);
 
-    // 读取位置信息长度
-    memcpy(&reportData.locationLength, ptr, sizeof(reportData.locationLength));
-    ptr += sizeof(reportData.locationLength);
-
-    // 验证数据大小
-    if (static_cast<size_t>(data.size()) < sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount))
-    {
-        // 添加详细日志信息以帮助调试
-        quint32 expectedSize = sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount);
-        Logger::instance()->error(QString("Invalid report request data size: received %1 bytes, expected at least %2 bytes (locationLength=%3, recordCount field size=%4)").arg(data.size()).arg(expectedSize).arg(reportData.locationLength).arg(sizeof(reportData.recordCount)), "MessageProtocol");
-        return reportData;
-    }
-
-    // 读取位置信息
-    reportData.location = QString::fromUtf8(ptr, reportData.locationLength);
-    ptr += reportData.locationLength;
-
-    // 验证位置长度
-    if (reportData.location.isEmpty() || reportData.location.length() > 64)
-    {
-        Logger::instance()->error("Invalid location length", "MessageProtocol");
-        return reportData;
-    }
+    // 读取128字节位置信息
+    char locationBuffer[LOCATION_LEN] = {0};
+    stream.readRawData(locationBuffer, sizeof(locationBuffer));
+    // 复制到结构体的location数组中
+    memcpy(reportData.location, locationBuffer, sizeof(locationBuffer));
 
     // 读取记录数量
-    memcpy(&reportData.recordCount, ptr, sizeof(reportData.recordCount));
-    ptr += sizeof(reportData.recordCount);
+    stream >> reportData.recordCount;
 
-    // 验证数据大小
-    quint32 expectedSize = sizeof(quint32) + reportData.locationLength + sizeof(reportData.recordCount) +
-                           reportData.recordCount * sizeof(LatencyRecord);
-    if (static_cast<quint32>(data.size()) != expectedSize)
+    // 安全检查：确保记录数量不会导致缓冲区溢出
+    const quint32 maxAllowedRecords = 1000; // 根据实际需求调整此值
+    if (reportData.recordCount > maxAllowedRecords)
     {
-        Logger::instance()->error("Invalid report request data size for records", "MessageProtocol");
+        reportData.recordCount = 0;
+        return reportData;
+    }
+
+    // 检查剩余数据是否足够解析所有记录
+    quint32 expectedRecordBytes = reportData.recordCount * 8; // 每条记录8字节（serverId和latency各4字节）
+    if (stream.device()->bytesAvailable() < expectedRecordBytes)
+    {
+        reportData.recordCount = 0;
         return reportData;
     }
 
@@ -183,9 +168,8 @@ ReportRequestData MessageProtocol::deserializeReportRequest(const QByteArray &da
     for (quint32 i = 0; i < reportData.recordCount; ++i)
     {
         LatencyRecord record;
-        memcpy(&record, ptr, sizeof(LatencyRecord));
+        stream >> record.serverId >> record.latency;
         reportData.records.append(record);
-        ptr += sizeof(LatencyRecord);
     }
 
     return reportData;
