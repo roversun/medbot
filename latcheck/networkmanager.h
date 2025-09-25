@@ -24,26 +24,39 @@ public:
     explicit NetworkManager(QObject *parent = nullptr, ConfigManager *configManager = nullptr);
     ~NetworkManager();
 
-    // 删除重复的 MessageType 枚举定义，使用 message_protocol.h 中的定义
-
+    // 修改connectToServer方法签名，移除证书路径参数
+    Q_INVOKABLE void connectToServer(const QString &host, int port, bool ignoreSslErrors);
+    // 修改testConnection方法签名，移除证书路径参数
+    Q_INVOKABLE void testConnection(const QString &host, int port, bool ignoreSslErrors);
+    Q_INVOKABLE bool login(const QString &username, const QString &password);
     bool connected() const;
     QString connectionStatus() const;
+
+    // 移除loadCertificates方法声明
+    // bool loadCertificates(const QString &certPath, const QString &keyPath);
+
     bool latencyCheckRunning() const;
     Q_INVOKABLE void startLatencyCheck(int threadCount = 4);
     Q_INVOKABLE void stopLatencyCheck();
 
-    Q_INVOKABLE void connectToServer(const QString &host, int port,
-                                     const QString &certPath, const QString &keyPath, bool ignoreSslErrors = false);
+    // 删除带有证书路径参数的connectToServer方法声明
+    // Q_INVOKABLE void connectToServer(const QString &host, int port,
+    //                                  const QString &certPath, const QString &keyPath, bool ignoreSslErrors = false);
     Q_INVOKABLE void disconnectFromServer();
-    Q_INVOKABLE void testConnection(const QString &host, int port,
-                                    const QString &certPath, const QString &keyPath, bool ignoreSslErrors = false);
-    Q_INVOKABLE bool login(const QString &username, const QString &passwordHash);
+    // 删除带有证书路径参数的testConnection方法声明
+    // Q_INVOKABLE void testConnection(const QString &host, int port,
+    //                                const QString &certPath, const QString &keyPath, bool ignoreSslErrors = false);
+    // 删除重复的login方法声明
+    // Q_INVOKABLE bool login(const QString &username, const QString &passwordHash);
     Q_INVOKABLE QVariantList requestIpList();
 
     // 新增方法
     Q_INVOKABLE bool sendLoginRequest(const QString &username, const QString &passwordHash);
     Q_INVOKABLE bool sendListRequest();
     Q_INVOKABLE bool sendReportRequest(const QString &location, const QVariantList &results);
+    Q_INVOKABLE bool saveIpListToFile(const QString &filePath, const QVariantList &ipList);
+    // 添加新的重载方法，直接使用内部保存的IP列表并提供文件浏览功能
+    Q_INVOKABLE bool saveIpListToFile();
 
 signals:
     void connectedChanged();
@@ -84,17 +97,18 @@ private:
 
     void setConnected(bool connected);
     void setConnectionStatus(const QString &status);
-    bool loadCertificates(const QString &certPath, const QString &keyPath);
+    // 移除未使用的loadCertificates方法
     void sendRequest(const QString &request, const QByteArray &data = QByteArray());
     QVariantList parseIpList(const QByteArray &data);
-    QString formatLogMessage(const QString &message);
+    // 添加通用SSL配置函数声明
+    QSslConfiguration configureSslSocket(QSslSocket *socket, bool ignoreSslErrors);
 
     // 消息处理相关方法
     bool sendMessage(MessageType msgType, const QByteArray &data); // 添加这个声明
     QByteArray createMessageHeader(quint32 msgType, quint32 dataLength);
     QByteArray createLoginRequestData(const QString &username, const QString &passwordHash);
     QByteArray createReportRequestData(const QString &location, const QVariantList &results);
-    void processIncomingMessage(); // 修改为无参数版本
+    void processIncomingMessage();                                          // 修改为无参数版本
     void handleMessage(MessageType msgType, const QByteArray &messageData); // 添加这个声明
     void processServerListResponse(const QByteArray &data);
 

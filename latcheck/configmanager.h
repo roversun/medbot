@@ -49,6 +49,14 @@ public:
     QString clientKeyPath() const;
     bool ignoreSslErrors() const;
 
+    // 添加获取证书subject名称的方法
+    Q_INVOKABLE QString getCertificateSubjectName() const;
+
+    // 添加证书相关方法到公有部分
+    QSslKey getPrivateKey() const;
+    QSslCertificate getPublicCert() const;
+    QSslCertificate getCACertificate() const;
+
     // Setters
     void setServerIp(const QString &ip);
     void setServerPort(int port);
@@ -82,13 +90,13 @@ private:
     QString getConfigFilePath() const;
     QString getConfigDirPath() const;
     bool ensureConfigDirExists() const;
-    
+
     QJsonObject toJsonObject() const;
     void fromJsonObject(const QJsonObject &json);
-    
+
     QString generateSalt();
     QString hashPassword(const QString &password, const QString &salt);
-    
+
     // RSA加密相关方法
     QByteArray generateIVFromMachineID();
     QByteArray encryptWithCryptoAPI(const QByteArray &data, const QByteArray &key);
@@ -96,10 +104,16 @@ private:
 
     QString encryptPassword(const QString &password);
     QString decryptPassword(const QString &encryptedPassword);
-    QSslKey getPrivateKey() const;  // 已存在
-    QSslKey getPublicKey() const;   // 如果需要
-    QSslCertificate getCertificate() const;  // 添加这个缺失的声明
-    QString getMachineFingerprint();  // 机器指纹方法
+    QString getMachineFingerprint(); // 机器指纹方法
+
+    // 为每个证书添加独立的懒加载成员变量
+    mutable QSslKey m_privateKey;
+    mutable QSslCertificate m_publicCert;
+    mutable QSslCertificate m_caCertificate;
+    mutable bool m_privateKeyLoaded = false;
+    mutable bool m_publicCertLoaded = false;
+    mutable bool m_caCertificateLoaded = false;
+
     QString m_serverIp;
     int m_serverPort;
     int m_threadCount;

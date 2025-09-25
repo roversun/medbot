@@ -10,6 +10,10 @@
 #include <QSslCipher>
 #include <QHostAddress>
 #include <QtEndian>
+#include <QStandardPaths>
+// Replace the existing QFileDialog include with this
+#include <QtWidgets/QFileDialog>
+#include <QtCore/QStandardPaths>
 
 // 在NetworkManager构造函数中添加连接
 NetworkManager::NetworkManager(QObject *parent, ConfigManager *configManager)
@@ -38,7 +42,7 @@ NetworkManager::NetworkManager(QObject *parent, ConfigManager *configManager)
     connect(m_latencyChecker, &LatencyChecker::progressChanged, this, [this]()
             { emit latencyCheckProgress(m_latencyChecker->progress(), m_latencyChecker->totalIps()); });
     connect(m_latencyChecker, &LatencyChecker::logMessage, this, [this](const QString &message)
-            { emit errorOccurred(formatLogMessage("[LatencyChecker] " + message)); }); // 连接日志信号
+            { emit errorOccurred(message); }); // 移除多余括号
 }
 
 NetworkManager::~NetworkManager()
@@ -59,75 +63,30 @@ QString NetworkManager::connectionStatus() const
     return m_connectionStatus;
 }
 
-// 添加格式化日志消息的私有方法
-QString NetworkManager::formatLogMessage(const QString &message)
-{
-    QString timestamp = QDateTime::currentDateTime().toString(Qt::ISODate).replace('T', ' ');
-    return QString("[%1] %2").arg(timestamp, message);
-}
-
-void NetworkManager::connectToServer(const QString &host, int port,
-                                     const QString &certPath, const QString &keyPath, bool ignoreSslErrors)
+// 在connectToServer方法中添加CA证书配置
+void NetworkManager::connectToServer(const QString &host, int port, bool ignoreSslErrors)
 {
     if (m_socket->state() != QAbstractSocket::UnconnectedState)
     {
         m_socket->disconnectFromHost();
     }
 
-    // Store SSL error ignore setting
-    m_ignoreSslErrors = ignoreSslErrors;
-
-    // Add debug log
-    emit errorOccurred(formatLogMessage(QString("SSL Error Handling: %1").arg(m_ignoreSslErrors ? "IGNORE" : "VALIDATE")));
-
-    // Pre-configure socket if SSL errors should be ignored
-    if (m_ignoreSslErrors)
-    {
-        m_socket->ignoreSslErrors();
-        QSslConfiguration sslConfig = m_socket->sslConfiguration();
-        sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-        m_socket->setSslConfiguration(sslConfig);
-    }
-
-    // Store connection info
-    m_currentHost = host;
-    m_currentPort = port;
-
-    // Output connection attempt log
-    QString connectMsg = QString("Attempting to connect to %1:%2").arg(host).arg(port);
-    if (!certPath.isEmpty() && !keyPath.isEmpty())
-    {
-        connectMsg += " with client certificates";
-    }
-    else
-    {
-        connectMsg += " using standard TLS";
-    }
-    emit errorOccurred(formatLogMessage(connectMsg));
-
-    setConnectionStatus("Connecting...");
-
-    // Set connection options
+    // 设置连接选项
     m_socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
     m_socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
 
-    // Load client certificates if provided
-    if (!certPath.isEmpty() && !keyPath.isEmpty())
-    {
-        if (!loadCertificates(certPath, keyPath))
-        {
-            setConnectionStatus("Certificate loading failed");
-            emit errorOccurred(formatLogMessage("Failed to load client certificates"));
-            return;
-        }
-    }
+    // Store SSL error ignore setting
+    m_ignoreSslErrors = ignoreSslErrors;
 
-    // Force TLS 1.3 protocol
-    QSslConfiguration sslConfig = m_socket->sslConfiguration();
-    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
-    m_socket->setSslConfiguration(sslConfig);
+    // 添加这两行代码保存主机和端口
+    m_currentHost = host;
+    m_currentPort = port;
 
-    emit errorOccurred(formatLogMessage("Forcing TLS 1.2 or later protocol"));
+    // 使用通用函数配置SSL
+    QSslConfiguration sslConfig = configureSslSocket(m_socket, ignoreSslErrors);
+
+    // 记录TLS协议强制设置（不是错误）
+    emit errorOccurred("Forcing TLS 1.2 or later protocol");
 
     // Connect to server
     m_socket->connectToHostEncrypted(host, port);
@@ -137,7 +96,7 @@ void NetworkManager::connectToServer(const QString &host, int port,
     {
         QString errorMsg = QString("Connection test failed: %1").arg(m_socket->errorString());
         setConnectionStatus(errorMsg);
-        emit errorOccurred(formatLogMessage(errorMsg));
+        emit errorOccurred(errorMsg);
         emit testConnectionResult("Server is unreachable!", false);
         return;
     }
@@ -145,9 +104,9 @@ void NetworkManager::connectToServer(const QString &host, int port,
     // Wait for SSL handshake completion
     if (!m_socket->waitForEncrypted(5000))
     {
-        QString errorMsg = QString("SSL handshake test failed: %1").arg(m_socket->errorString());
+        QString errorMsg = QString("SSL handshake failed: %1").arg(m_socket->errorString());
         setConnectionStatus(errorMsg);
-        emit errorOccurred(formatLogMessage(errorMsg));
+        emit errorOccurred(errorMsg);
         return;
     }
 }
@@ -160,108 +119,53 @@ void NetworkManager::disconnectFromServer()
     }
 }
 
-void NetworkManager::testConnection(const QString &host, int port,
-                                    const QString &certPath, const QString &keyPath, bool ignoreSslErrors)
+void NetworkManager::testConnection(const QString &host, int port, bool ignoreSslErrors)
 {
-    // 创建临时socket进行测试，不影响主连接状态
+    // 创建新的测试套接字
     QSslSocket *testSocket = new QSslSocket(this);
+
+    // 禁用代理
     testSocket->setProxy(QNetworkProxy::NoProxy);
 
-    // Store SSL error ignore setting
-    m_ignoreSslErrors = ignoreSslErrors;
+    // 设置忽略SSL错误标志
+    testSocket->setObjectName("TestSocket");
 
-    // Add debug log
-    emit errorOccurred(formatLogMessage(QString("Testing connection to %1:%2").arg(host).arg(port)));
+    // 连接sslErrors信号到onSslErrors槽函数
+    connect(testSocket, &QSslSocket::sslErrors, this, &NetworkManager::onSslErrors);
 
-    // Pre-configure socket if SSL errors should be ignored
-    if (m_ignoreSslErrors)
-    {
-        testSocket->ignoreSslErrors();
-        QSslConfiguration sslConfig = testSocket->sslConfiguration();
-        sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-        testSocket->setSslConfiguration(sslConfig);
-    }
+    // 使用通用函数配置SSL
+    QSslConfiguration sslConfig = configureSslSocket(testSocket, ignoreSslErrors);
 
+    // 连接到服务器
     setConnectionStatus("Testing connection...");
+    emit errorOccurred(QString("Testing connection to %1:%2").arg(host).arg(port));
 
-    // Set connection options
-    testSocket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
-    testSocket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
-
-    // Load client certificates if provided
-    if (!certPath.isEmpty() && !keyPath.isEmpty() && false)
-    {
-        // Load certificates for test socket
-        QFile certFile(certPath);
-        if (!certFile.open(QIODevice::ReadOnly))
-        {
-            setConnectionStatus("Certificate loading failed");
-            emit errorOccurred(formatLogMessage("Failed to load client certificates"));
-            emit testConnectionResult("Server is unreachable!", false);
-            testSocket->deleteLater();
-            return;
-        }
-
-        QFile keyFile(keyPath);
-        if (!keyFile.open(QIODevice::ReadOnly))
-        {
-            setConnectionStatus("Certificate loading failed");
-            emit errorOccurred(formatLogMessage("Failed to load client certificates"));
-            emit testConnectionResult("Server is unreachable!", false);
-            testSocket->deleteLater();
-            return;
-        }
-
-        QSslCertificate certificate(certFile.readAll());
-        QSslKey privateKey(keyFile.readAll(), QSsl::Rsa);
-
-        if (certificate.isNull() || privateKey.isNull())
-        {
-            setConnectionStatus("Invalid certificates");
-            emit errorOccurred(formatLogMessage("Invalid client certificates"));
-            emit testConnectionResult("Server is unreachable!", false);
-            testSocket->deleteLater();
-            return;
-        }
-
-        testSocket->setLocalCertificate(certificate);
-        testSocket->setPrivateKey(privateKey);
-    }
-
-    // Force TLS 1.3 protocol for test connection
-    QSslConfiguration sslConfig = testSocket->sslConfiguration();
-    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
-    testSocket->setSslConfiguration(sslConfig);
-
-    emit errorOccurred(formatLogMessage("Forcing TLS 1.2 or later protocol for test connection"));
-
-    // Connect to server
     testSocket->connectToHostEncrypted(host, port);
 
-    // Wait for connection with timeout
+    // 等待连接建立
     if (!testSocket->waitForConnected(5000))
     {
         QString errorMsg = QString("Connection test failed: %1").arg(testSocket->errorString());
         setConnectionStatus(errorMsg);
-        emit errorOccurred(formatLogMessage(errorMsg));
+        emit errorOccurred(errorMsg);
         emit testConnectionResult("Server is unreachable!", false);
         testSocket->deleteLater();
         return;
     }
 
-    // Wait for SSL handshake completion
+    // 等待SSL握手完成
     if (!testSocket->waitForEncrypted(5000))
     {
         QString errorMsg = QString("SSL handshake test failed: %1").arg(testSocket->errorString());
         setConnectionStatus(errorMsg);
-        emit errorOccurred(formatLogMessage(errorMsg));
+        emit errorOccurred(errorMsg);
         emit testConnectionResult("Server is unreachable!", false);
         testSocket->deleteLater();
         return;
     }
 
     // Connection test successful, now disconnect
-    emit errorOccurred(formatLogMessage("Connection test successful"));
+    emit errorOccurred("Connection test successful");
     setConnectionStatus("Connection test successful");
 
     // 简化测试连接结果消息，不包含TLS详细信息
@@ -273,10 +177,12 @@ void NetworkManager::testConnection(const QString &host, int port,
 bool NetworkManager::login(const QString &username, const QString &password)
 {
     qDebug() << "Starting login process for user:" << username;
+    emit errorOccurred(QString("Starting login process for user: %1").arg(username));
 
     if (!m_connected)
     {
         qDebug() << "Not connected, attempting auto-connect...";
+        // emit errorOccurred("Connecting to server...");
         if (m_configManager)
         {
             QString serverIp = m_configManager->serverIp();
@@ -285,19 +191,23 @@ bool NetworkManager::login(const QString &username, const QString &password)
             if (!serverIp.isEmpty() && serverPort > 0)
             {
                 qDebug() << "Auto-connecting to server:" << serverIp << ":" << serverPort;
+                emit errorOccurred(QString("Connecting to server: %1:%2").arg(serverIp).arg(serverPort));
 
                 // 存储登录信息，等待连接完成后再发送
                 m_pendingUsername = username;
                 m_pendingPassword = password;
                 m_hasPendingLogin = true;
+                // emit errorOccurred(QString("Set pending login: %1, Username: %2").arg(m_hasPendingLogin ? "true" : "false").arg(username));
 
-                connectToServer(serverIp, serverPort, "", "", true);
+                connectToServer(serverIp, serverPort, false);
                 return true; // 返回true表示登录流程已启动
             }
         }
+        emit errorOccurred("Failed connecting to server");
         return false;
     }
 
+    emit errorOccurred(QString("Already connected, sending login request directly for user: %1").arg(username));
     return sendLoginRequest(username, password);
 }
 
@@ -321,8 +231,8 @@ void NetworkManager::onEncrypted()
     QString tlsInfo = QString("TLS Protocol: %1").arg(protocolVersion);
     QString cipherSuiteInfo = QString("Cipher Suite: %1").arg(cipherInfo);
 
-    emit errorOccurred(formatLogMessage(tlsInfo));
-    emit errorOccurred(formatLogMessage(cipherSuiteInfo));
+    emit errorOccurred(tlsInfo);
+    emit errorOccurred(cipherSuiteInfo);
 
     // 发送TLS版本信号供外部使用
     emit tlsVersionDetected(protocolVersion);
@@ -399,21 +309,32 @@ void NetworkManager::onConnected()
 {
     setConnected(true);
 
-    QString successMsg = QString("Successfully connected to %1:%2")
+    QString successMsg = QString("Successfully connected to %1:%2, send pending login request")
                              .arg(m_currentHost)
                              .arg(m_currentPort);
 
     setConnectionStatus(successMsg);
-    emit errorOccurred(formatLogMessage(successMsg));
+    emit errorOccurred(successMsg);
+
+    // 添加调试信息，显示pending login状态
+    // emit errorOccurred(QString("Pending login status: %1, Username: %2")
+    //                        .arg(m_hasPendingLogin ? "true" : "false")
+    //                        .arg(m_pendingUsername.isEmpty() ? "empty" : m_pendingUsername));
 
     // 如果有待发送的登录请求，现在发送
     if (m_hasPendingLogin)
     {
-        qDebug() << "Sending pending login request";
+        // qDebug() << "Sending pending login request";
+        // emit errorOccurred("Sending pending login request"); // 添加到日志中
         sendLoginRequest(m_pendingUsername, m_pendingPassword);
         m_hasPendingLogin = false;
         m_pendingUsername.clear();
         m_pendingPassword.clear();
+    }
+    else
+    {
+        // 添加额外的日志，说明为什么没有发送登录请求
+        emit errorOccurred("No pending login request to send");
     }
 }
 
@@ -422,36 +343,91 @@ void NetworkManager::onDisconnected()
     setConnected(false);
     QString disconnectMsg = QString("Disconnected from %1:%2").arg(m_currentHost).arg(m_currentPort);
     setConnectionStatus(disconnectMsg);
-    emit errorOccurred(formatLogMessage(disconnectMsg)); // 使用格式化的日志
+    emit errorOccurred(disconnectMsg); // 使用格式化的日志
 }
 
+// 修改onSslErrors槽函数以支持测试套接字并处理颁发者证书错误
 void NetworkManager::onSslErrors(const QList<QSslError> &errors)
 {
-    QString errorString = "SSL Errors: ";
-    for (const QSslError &error : errors)
+    // 获取发送信号的套接字
+    QSslSocket *socket = qobject_cast<QSslSocket *>(sender());
+    if (!socket)
+        return;
+
+    // 确定是否是测试套接字
+    bool isTestSocket = (socket->objectName() == "TestSocket");
+    if (isTestSocket)
     {
-        errorString += error.errorString() + "; ";
+        socket->ignoreSslErrors(errors);
+        return;
     }
 
-    // 只在第一次SSL错误时输出设置信息
-    static bool firstSslError = true;
-    if (firstSslError)
+    // 对于测试套接字或设置了忽略SSL错误的情况
+    if (m_ignoreSslErrors || isTestSocket)
     {
-        emit errorOccurred(formatLogMessage(QString("Ignore SSL Errors setting: %1").arg(m_ignoreSslErrors ? "true" : "false")));
-        firstSslError = false;
-    }
+        // 忽略以下类型的错误：
+        QList<QSslError> errorsToIgnore;
+        for (const QSslError &error : errors)
+        {
+            if (error.error() == QSslError::HostNameMismatch ||
+                error.error() == QSslError::SelfSignedCertificateInChain)
+            {
+                errorsToIgnore.append(error);
+                QString errorMsg = QString("Ignoring SSL error: %1(%2)").arg(error.error()).arg(error.errorString());
+                emit errorOccurred(errorMsg);
+            }
+        }
 
-    // 如果配置为忽略SSL错误，则忽略它们
-    if (m_ignoreSslErrors)
+        if (!errorsToIgnore.isEmpty())
+        {
+            socket->ignoreSslErrors(errorsToIgnore);
+        }
+
+        // 如果还有其他错误没有被忽略，记录下来
+        if (errors.size() > errorsToIgnore.size())
+        {
+            QString errorMsg = "SSL Errors: ";
+            for (const QSslError &error : errors)
+            {
+                if (!errorsToIgnore.contains(error))
+                {
+                    errorMsg += error.errorString() + "; ";
+                }
+            }
+            emit errorOccurred(errorMsg);
+        }
+    }
+    else
     {
-        emit errorOccurred(formatLogMessage("Ignoring SSL errors as configured"));
-        m_socket->ignoreSslErrors();
-        return; // 不设置错误状态，不发射错误信号
-    }
+        // 标准行为：只忽略主机名不匹配的错误
+        QList<QSslError> errorsToIgnore;
+        for (const QSslError &error : errors)
+        {
+            if (error.error() == QSslError::HostNameMismatch)
+            {
+                errorsToIgnore.append(error);
+            }
+        }
 
-    // 只有在不忽略SSL错误时才报告错误
-    setConnectionStatus(errorString);
-    emit errorOccurred(formatLogMessage(errorString));
+        if (!errorsToIgnore.isEmpty())
+        {
+            socket->ignoreSslErrors(errorsToIgnore);
+        }
+
+        // 如果还有其他错误没有被忽略，记录下来
+        if (errors.size() > errorsToIgnore.size())
+        {
+            QString errorMsg = "SSL Errors: ";
+            for (const QSslError &error : errors)
+            {
+                if (!errorsToIgnore.contains(error))
+                {
+                    errorMsg += error.errorString() + "; ";
+                }
+            }
+            emit errorOccurred(errorMsg);
+        }
+    }
 }
 
 QByteArray NetworkManager::createMessageHeader(quint32 msgType, quint32 dataLength)
@@ -485,7 +461,7 @@ bool NetworkManager::sendLoginRequest(const QString &username, const QString &pa
 {
     if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState)
     {
-        emit errorOccurred(formatLogMessage("Not connected to server"));
+        emit errorOccurred("Not connected to server");
         return false;
     }
 
@@ -498,14 +474,14 @@ bool NetworkManager::sendLoginRequest(const QString &username, const QString &pa
     QByteArray completeMessage = headerData + loginData;
     m_socket->write(completeMessage);
 
-    emit errorOccurred(formatLogMessage(QString("📤 Sent login request (%1 bytes)").arg(completeMessage.size())));
+    emit errorOccurred(QString("Sent login request (%1 bytes)").arg(completeMessage.size()));
     return true;
 }
 bool NetworkManager::sendListRequest()
 {
     if (!m_connected)
     {
-        emit errorOccurred(formatLogMessage("Not connected to server"));
+        emit errorOccurred("Not connected to server");
         return false;
     }
 
@@ -516,7 +492,7 @@ bool NetworkManager::sendListRequest()
     m_socket->write(headerData);
     m_socket->flush();
 
-    emit errorOccurred(formatLogMessage("→ Server list request sent, waiting for response..."));
+    emit errorOccurred("→ Server list request sent, waiting for response...");
     return true;
 }
 
@@ -534,25 +510,20 @@ void NetworkManager::processIncomingMessage()
         header.msgType = qFromBigEndian(headerPtr->msgType);
         header.dataLength = qFromBigEndian(headerPtr->dataLength);
 
-        // emit errorOccurred(formatLogMessage(QString("📨 Message header - Type: 0x%1, Length: %2")
-        //                                   .arg(header.msgType, 4, 16, QChar('0')).arg(header.dataLength)));
-
         // 检查是否有完整消息
         const int totalMessageSize = sizeof(MessageHeader) + header.dataLength;
         if (m_receivedData.size() < totalMessageSize)
         {
-            emit errorOccurred(formatLogMessage(QString("⏳ Waiting for more data - Need: %1, Have: %2")
-                                                    .arg(totalMessageSize)
-                                                    .arg(m_receivedData.size())));
+            emit errorOccurred(QString("Waiting for more data - Need: %1, Have: %2")
+                                   .arg(totalMessageSize)
+                                   .arg(m_receivedData.size()));
             break;
         }
-
-        // emit errorOccurred(formatLogMessage(QString("✅ Processing complete message of %1 bytes").arg(totalMessageSize)));
 
         // 验证数据长度合理性
         if (header.dataLength > 1024 * 1024) // 1MB 限制
         {
-            emit errorOccurred(formatLogMessage(QString("❌ Message too large: %1 bytes").arg(header.dataLength)));
+            emit errorOccurred(QString("Message too large: %1 bytes").arg(header.dataLength));
             m_receivedData.clear(); // 清空缓冲区，避免恶意数据
             break;
         }
@@ -569,8 +540,6 @@ void NetworkManager::processIncomingMessage()
 
         // 从缓冲区移除已处理的数据
         m_receivedData = m_receivedData.mid(totalMessageSize);
-
-        // emit errorOccurred(formatLogMessage(QString("📦 Remaining buffer size: %1 bytes").arg(m_receivedData.size())));
     }
 }
 
@@ -580,28 +549,27 @@ void NetworkManager::handleMessage(MessageType msgType, const QByteArray &messag
     switch (msgType)
     {
     case MessageType::LOGIN_OK:
-        emit errorOccurred(formatLogMessage("✅ Login successful"));
+        emit errorOccurred("✅ Login successful");
         emit loginResult(true, "");
         break;
     case MessageType::LOGIN_FAIL:
-        emit errorOccurred(formatLogMessage("❌ Login failed"));
+        emit errorOccurred("❌ Login failed");
         emit loginResult(false, "Login failed");
         disconnectFromServer();
         break;
     case MessageType::LIST_RESPONSE:
-        // emit errorOccurred(formatLogMessage("📋 Received server list"));
         processServerListResponse(messageData);
         break;
     case MessageType::REPORT_OK:
-        emit errorOccurred(formatLogMessage("📤 Latency report uploaded successfully"));
+        // emit errorOccurred("📤 Latency report uploaded successfully");
         emit reportUploadResult(true, "", "");
         break;
     case MessageType::REPORT_FAIL:
-        emit errorOccurred(formatLogMessage("❌ Latency report upload failed"));
+        // emit errorOccurred("❌ Latency report upload failed");
         emit reportUploadResult(false, "", "Upload failed");
         break;
     default:
-        emit errorOccurred(formatLogMessage(QString("⚠️ Unknown message type: 0x%1").arg(static_cast<quint32>(msgType), 4, 16, QChar('0'))));
+        emit errorOccurred(QString("Unknown message type: 0x%1").arg(static_cast<quint32>(msgType), 4, 16, QChar('0')));
         break;
     }
 }
@@ -652,7 +620,7 @@ bool NetworkManager::sendReportRequest(const QString &location, const QVariantLi
 {
     if (!m_connected)
     {
-        emit errorOccurred(formatLogMessage("Not connected to server"));
+        emit errorOccurred("Not connected to server");
         return false;
     }
 
@@ -677,17 +645,16 @@ bool NetworkManager::sendReportRequest(const QString &location, const QVariantLi
     m_socket->write(header + reportData);
     m_socket->flush();
 
-    emit errorOccurred(formatLogMessage("Report request sent"));
+    emit errorOccurred("Report request sent");
     return true;
 }
 
 void NetworkManager::onReadyRead()
 {
     QByteArray newData = m_socket->readAll();
-    emit errorOccurred(formatLogMessage(QString("📥 Received %1 bytes").arg(newData.size())));
+    // emit errorOccurred(QString("Received %1 bytes").arg(newData.size()));
 
     m_receivedData.append(newData);
-    emit errorOccurred(formatLogMessage(QString("📦 Total buffer size: %1 bytes").arg(m_receivedData.size())));
 
     // 简单地尝试处理缓冲区中的数据
     processIncomingMessage();
@@ -746,7 +713,7 @@ void NetworkManager::onSocketError(QAbstractSocket::SocketError error)
     }
 
     setConnectionStatus(errorString);
-    emit errorOccurred(formatLogMessage(errorString)); // 使用格式化的日志
+    emit errorOccurred(errorString); // 使用格式化的日志
 }
 
 void NetworkManager::setConnected(bool connected)
@@ -765,42 +732,6 @@ void NetworkManager::setConnectionStatus(const QString &status)
         m_connectionStatus = status;
         emit connectionStatusChanged();
     }
-}
-
-bool NetworkManager::loadCertificates(const QString &certPath, const QString &keyPath)
-{
-    // 如果路径为空，返回false但不是错误状态
-    if (certPath.isEmpty() || keyPath.isEmpty())
-    {
-        return false;
-    }
-
-    QFile certFile(certPath);
-    if (!certFile.open(QIODevice::ReadOnly))
-    {
-        return false;
-    }
-
-    QFile keyFile(keyPath);
-    if (!keyFile.open(QIODevice::ReadOnly))
-    {
-        return false;
-    }
-
-    QSslCertificate certificate(certFile.readAll());
-    QSslKey privateKey(keyFile.readAll(), QSsl::Rsa);
-
-    if (certificate.isNull() || privateKey.isNull())
-    {
-        return false;
-    }
-
-    QSslConfiguration sslConfig = m_socket->sslConfiguration();
-    sslConfig.setLocalCertificate(certificate);
-    sslConfig.setPrivateKey(privateKey);
-    m_socket->setSslConfiguration(sslConfig);
-
-    return true;
 }
 
 void NetworkManager::sendRequest(const QString &request, const QByteArray &data)
@@ -844,11 +775,11 @@ void NetworkManager::startLatencyCheck(int threadCount)
 {
     if (!m_latencyChecker || m_currentServerList.isEmpty())
     {
-        emit errorOccurred(formatLogMessage("⚠️ No servers available for latency check"));
+        emit errorOccurred("No servers available for latency check");
         return;
     }
 
-    emit errorOccurred(formatLogMessage("🚀 Starting latency check..."));
+    emit errorOccurred("Starting latency check...");
 
     // 传递完整的服务器列表而不仅仅是IP列表
     m_latencyChecker->startChecking(m_currentServerList, threadCount);
@@ -859,7 +790,7 @@ void NetworkManager::stopLatencyCheck()
     if (m_latencyChecker)
     {
         m_latencyChecker->stopChecking();
-        emit errorOccurred(formatLogMessage("⏹️ Latency check stopped"));
+        emit errorOccurred("Latency check stopped");
     }
 }
 
@@ -879,8 +810,8 @@ void NetworkManager::onLatencyResult(quint32 serverId, quint32 ipAddr, int laten
 
 void NetworkManager::onLatencyCheckFinished(const QVariantList &results)
 {
-    emit errorOccurred(formatLogMessage(QString("✅ Latency check completed for %1 servers").arg(results.size())));
-    emit latencyCheckFinished(results);    
+    emit errorOccurred(QString("✅ Latency check completed for %1 servers").arg(results.size()));
+    emit latencyCheckFinished(results);
 }
 
 // 修改processServerListResponse函数，添加自动启动延时检测
@@ -898,14 +829,6 @@ void NetworkManager::processServerListResponse(const QByteArray &data)
         quint32 serverId, ipAddr;
         stream >> serverId >> ipAddr;
 
-        // 修复：使用QHostAddress正确处理IP地址转换
-        // QHostAddress address(ipAddr);
-        // QString ipString = address.toString();
-
-        // emit errorOccurred(formatLogMessage(QString("📋 server %1:%2")
-        //                                         .arg(serverId)
-        //                                         .arg(ipString)));
-
         QVariantMap server;
         server["server_id"] = serverId;
         // server["ip_address"] = ipString;
@@ -915,13 +838,174 @@ void NetworkManager::processServerListResponse(const QByteArray &data)
 
     m_currentServerList = serverList;
     emit ipListReceived(serverList);
-    emit errorOccurred(formatLogMessage(QString("📋 Received %1 servers from server")
-                                            .arg(serverCount)));
+    emit errorOccurred(QString("✅ Received %1 servers from server")
+                           .arg(serverCount));
 
     // 自动启动延时检测
     if (m_autoStartLatencyCheck && !serverList.isEmpty())
     {
-        emit errorOccurred(formatLogMessage("🔄 Auto-starting latency check..."));
-        startLatencyCheck(4); // 使用4个线程
+        emit errorOccurred("Auto-starting latency check...");
+        startLatencyCheck(m_configManager->threadCount());
     }
+}
+
+// 修改saveIpListToFile方法，使用函数内静态变量记住最后保存路径
+bool NetworkManager::saveIpListToFile(const QString &filePath, const QVariantList &ipList)
+{
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        qDebug() << "Failed to open file for writing:" << filePath << "Error:" << file.errorString();
+        emit errorOccurred(QString("Failed to open file for writing: %1, Error: %2").arg(filePath).arg(file.errorString()));
+        return false;
+    }
+
+    QTextStream out(&file);
+    foreach (const QVariant &ip, ipList)
+    {
+        out << ip.toString() << "\n";
+    }
+
+    file.close();
+
+    qDebug() << "IP list successfully saved to:" << filePath;
+    emit errorOccurred(QString("✅ IP list successfully saved to: %1").arg(filePath));
+    return true;
+}
+
+// 修改saveIpListToFile()无参方法，直接保存到默认位置而不使用文件对话框
+bool NetworkManager::saveIpListToFile()
+{
+    // 检查是否有保存的IP列表
+    if (m_currentServerList.isEmpty())
+    {
+        emit errorOccurred("No IP list available to save.");
+        return false;
+    }
+
+    // 转换IP格式
+    QVariantList formattedIpList;
+    foreach (const QVariant &server, m_currentServerList)
+    {
+        QVariantMap serverMap = server.toMap();
+        if (serverMap.contains("ip_address"))
+        {
+            // 如果IP是整数形式，转换为点分十进制格式
+            QVariant ipValue = serverMap["ip_address"];
+            if (ipValue.typeId() == QMetaType::UInt)
+            {
+                quint32 ipAddr = ipValue.toUInt();
+                QHostAddress hostAddr(ipAddr);
+                formattedIpList.append(hostAddr.toString());
+            }
+            else
+            {
+                formattedIpList.append(ipValue.toString());
+            }
+        }
+    }
+
+    // 获取默认保存路径（我的文档目录）并设置文件名
+    QString documentsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    QString filePath = documentsPath + QDir::separator() + "ip_list.txt";
+
+    // 调用现有的保存方法
+    return saveIpListToFile(filePath, formattedIpList);
+}
+
+QSslConfiguration NetworkManager::configureSslSocket(QSslSocket *socket, bool ignoreSslErrors)
+{
+    if (!socket)
+        return QSslConfiguration();
+
+    // 强制使用TLS 1.2或更高版本
+    QSslConfiguration sslConfig = socket->sslConfiguration();
+    sslConfig.setProtocol(QSsl::TlsV1_2OrLater);
+
+    // 配置SSL选项
+    if (m_configManager)
+    {
+        // 先设置SSL验证模式和CA证书
+        if (ignoreSslErrors)
+        {
+            sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+            emit errorOccurred("SSL verification disabled");
+        }
+        else
+        {
+            // 只验证证书链是否由同一CA颁发，忽略主机名验证
+            sslConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+            emit errorOccurred("SSL verification enabled");
+        }
+
+        // 使用内嵌的CA证书作为颁发者证书
+        QSslCertificate caCert = m_configManager->getCACertificate();
+        if (!caCert.isNull())
+        {
+            emit errorOccurred("CA certificate is configured");
+            QList<QSslCertificate> caCerts = sslConfig.caCertificates();
+            caCerts.append(caCert);
+            sslConfig.setCaCertificates(caCerts);
+        }
+        else
+        {
+            emit errorOccurred("CA certificate is null");
+        }
+
+        // 然后设置客户端证书和私钥到sslConfig对象，而不是直接设置到套接字
+        QSslCertificate clientCert = m_configManager->getPublicCert();
+        QSslKey privateKey = m_configManager->getPrivateKey();
+
+        if (!clientCert.isNull())
+        {
+            sslConfig.setLocalCertificate(clientCert);
+            // emit errorOccurred("Client certificate set to SSL config successfully");
+            // 添加调试信息显示证书信息
+            emit errorOccurred(QString("Certificate subject: %1").arg(clientCert.subjectInfo(QSslCertificate::CommonName).join(", ")));
+            emit errorOccurred(QString("Certificate issuer: %1").arg(clientCert.issuerInfo(QSslCertificate::CommonName).join(", ")));
+        }
+        else
+        {
+            emit errorOccurred("Client certificate is not configured");
+        }
+
+        if (!privateKey.isNull())
+        {
+            sslConfig.setPrivateKey(privateKey);
+            emit errorOccurred("Client key set to SSL config successfully");
+            // emit errorOccurred(QString("Private key algorithm: %1").arg(privateKey.algorithm()));
+        }
+        else
+        {
+            emit errorOccurred(QString("Client key is not configured"));
+        }
+
+        // 添加证书链配置到sslConfig对象
+        QList<QSslCertificate> certChain;
+        certChain.append(clientCert);
+        certChain.append(caCert);
+        sslConfig.setLocalCertificateChain(certChain);
+        emit errorOccurred(QString("Certificate chain length: %1").arg(certChain.size()));
+    }
+    else
+    {
+        emit errorOccurred("Certificates are not able to load");
+    }
+
+    // 一次性将所有SSL配置应用到套接字
+    socket->setSslConfiguration(sslConfig);
+
+    // 确认证书设置
+    if (socket->localCertificate().isNull())
+    {
+        emit errorOccurred("WARNING: Local certificate is NULL after configuration!");
+    }
+    else
+    {
+        emit errorOccurred("SUCCESS: Local certificate is correctly set after configuration!");
+        emit errorOccurred(QString("Verified certificate subject: %1").arg(socket->localCertificate().subjectInfo(QSslCertificate::CommonName).join(", ")));
+    }
+
+    return sslConfig;
 }

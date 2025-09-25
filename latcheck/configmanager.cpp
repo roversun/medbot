@@ -21,11 +21,11 @@
 #include <wincrypt.h>
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "advapi32.lib")
-#undef interface  // Undefine the Windows macro to avoid conflict
+#undef interface // Undefine the Windows macro to avoid conflict
 #endif
 
 // RSA私钥 - 用于解密
-static const char* PRIVATE_KEY_PEM = 
+static const char *PRIVATE_KEY_PEM =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDWJtt/aWA4gNh8\n"
     "hykeiKBPzs47jgl64eA2YmXpYy5qqhpcPUox/1yZ19sptSknCmcMyyhFSDehQ6yh\n"
@@ -56,7 +56,7 @@ static const char* PRIVATE_KEY_PEM =
     "-----END PRIVATE KEY-----";
 
 // RSA公钥证书 - 用于加密
-static const char* CERTIFICATE_PEM = 
+static const char *CERTIFICATE_PEM =
     "-----BEGIN CERTIFICATE-----\n"
     "MIID1DCCArygAwIBAgIUOMj611Cghs9/QobdbhoJPczvBz4wDQYJKoZIhvcNAQEL\n"
     "BQAwWDELMAkGA1UEBhMCQ04xCzAJBgNVBAgMAlNIMQswCQYDVQQHDAJTSDEPMA0G\n"
@@ -81,15 +81,34 @@ static const char* CERTIFICATE_PEM =
     "sajV3iEzLoib8m2MYKh+SgOtexL6fweQ\n"
     "-----END CERTIFICATE-----";
 
-// 移除 PRIVATE_KEY_PEM 和 CERTIFICATE_PEM 常量定义
+// 在PRIVATE_KEY_PEM和CERTIFICATE_PEM常量之后添加
+// CA证书 - 用于验证服务器证书
+static const char *CA_CERTIFICATE_PEM =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIDkTCCAnmgAwIBAgIULdCd7uvBX/gLiMZ6Eun4Xre+ppswDQYJKoZIhvcNAQEL\n"
+    "BQAwWDELMAkGA1UEBhMCQ04xCzAJBgNVBAgMAlNIMQswCQYDVQQHDAJTSDEPMA0G\n"
+    "A1UECgwGTWVkYm90MQ0wCwYDVQQLDARITEhUMQ8wDQYDVQQDDAZWUE5fQ0EwHhcN\n"
+    "MjUwODA0MDc1NTU1WhcNMzUwODAyMDc1NTU1WjBYMQswCQYDVQQGEwJDTjELMAkG\n"
+    "A1UECAwCU0gxCzAJBgNVBAcMAlNIMQ8wDQYDVQQKDAZNZWRib3QxDTALBgNVBAsM\n"
+    "BEhMSFQxDzANBgNVBAMMBlZQTl9DQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC\n"
+    "AQoCggEBAIyGinFwdglMVrH/cy0tJkX9m41bqd1hQl0jidCD+JdrbZ4nklMhDlFk\n"
+    "ZiGFsGVHn5xYt+C3YudGEHJaSjomoMXAW19NFst27YcVPnpcWMY+KF+Zm9BGI6Y0\n"
+    "OW4aADPdPbMbAa5DykydoYGJLhPldB0lmZCiMlz/Jc2Cfjp6z/3gxgUG45NnsAi0\n"
+    "M51L0tTCN0JgJW3kzQcIZK8YjgVyj3Q9DfDwdO6Q34oa7oaS3jC73WAaNHCaS8cg\n"
+    "JyozppBBveR26Tt/66HW9BaeSeVtBLdx/ZtaZNZOSWFTwTdFyQ2a7YGgOa7D+p4Q\n"
+    "I+pTMft87VsSiSLX9lvjpJNqZfNHXfECAwEAAaNTMFEwHQYDVR0OBBYEFFdxBWrd\n"
+    "4J46DJsZrGpyTHcIi1XLMB8GA1UdIwQYMBaAFFdxBWrd4J46DJsZrGpyTHcIi1XL\n"
+    "MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBADNice6k0R6vb2rD\n"
+    "O9iHabhBML1NIQfUTMfdYBNDIOa4GyNe+T+FaDdmOE3bSZbABpZskYzi2tXRAdM5\n"
+    "HkKPYxk4tY+BpmRUl+Zcxtxi2xfv4wjN6wcU1gMxnRPIU1cKkY2YRliS06Nb3+yR\n"
+    "9WaSQRMWDHX3KW69Y2Z1OxS4PWQsfJAMGIVWtcFIsWJpjeUPY4qAqTvwKGL+PQVR\n"
+    "QXI4T04crc8jOc0N9w+8Aeol/H+hUqL/Lo2DdnZ7+If+2ZMyRdoTkU14DA4qjbA3\n"
+    "CQpqrJ/st1w4OgvW5fQKOmtej9grJo3VV8wbPMMpIVDeVJ0PHdIfA2Npb+Bq8n0H\n"
+    "Iwkpn/8=\n"
+    "-----END CERTIFICATE-----";
 
 ConfigManager::ConfigManager(QObject *parent)
-    : QObject(parent)
-    , m_serverIp("127.0.0.1")
-    , m_serverPort(8080)
-    , m_threadCount(50)
-    , m_autoLocation(false)
-    , m_ignoreSslErrors(true)
+    : QObject(parent), m_serverIp("127.0.0.1"), m_serverPort(8080), m_threadCount(50), m_autoLocation(false), m_ignoreSslErrors(true)
 {
     m_configFilePath = getConfigFilePath();
     ensureConfigDirExists();
@@ -111,7 +130,8 @@ QString ConfigManager::getConfigFilePath() const
 bool ConfigManager::ensureConfigDirExists() const
 {
     QDir configDir(getConfigDirPath());
-    if (!configDir.exists()) {
+    if (!configDir.exists())
+    {
         return configDir.mkpath(".");
     }
     return true;
@@ -121,36 +141,36 @@ bool ConfigManager::ensureConfigDirExists() const
 QJsonObject ConfigManager::toJsonObject() const
 {
     QJsonObject json;
-    
+
     QJsonObject server;
     server["ip"] = m_serverIp;
     server["port"] = m_serverPort;
     json["server"] = server;
-    
+
     QJsonObject threading;
     threading["count"] = m_threadCount;
     json["threading"] = threading;
-    
+
     QJsonObject auth;
     auth["username"] = m_username;
     auth["password_hash"] = m_passwordHash;
     auth["salt"] = m_salt;
     json["auth"] = auth;
-    
+
     QJsonObject location;
     location["text"] = m_location;
     location["auto"] = m_autoLocation;
     json["location"] = location;
-    
+
     QJsonObject certificates;
     certificates["client_cert"] = m_clientCertPath;
     certificates["client_key"] = m_clientKeyPath;
     json["certificates"] = certificates;
-    
+
     QJsonObject ssl;
     ssl["ignore_errors"] = m_ignoreSslErrors;
     json["ssl"] = ssl;
-    
+
     return json;
 }
 
@@ -160,27 +180,27 @@ void ConfigManager::fromJsonObject(const QJsonObject &json)
     QJsonObject server = json["server"].toObject();
     m_serverIp = server["ip"].toString("127.0.0.1");
     m_serverPort = server["port"].toInt(8080);
-    
+
     // Threading settings
     QJsonObject threading = json["threading"].toObject();
     m_threadCount = threading["count"].toInt(50);
-    
+
     // Auth settings
     QJsonObject auth = json["auth"].toObject();
     m_username = auth["username"].toString("");
     m_passwordHash = auth["password_hash"].toString("");
     m_salt = auth["salt"].toString("");
-    
+
     // Location settings
     QJsonObject location = json["location"].toObject();
     m_location = location["text"].toString("");
     m_autoLocation = location["auto"].toBool(false);
-    
+
     // Certificate settings
     QJsonObject certificates = json["certificates"].toObject();
     m_clientCertPath = certificates["client_cert"].toString("");
     m_clientKeyPath = certificates["client_key"].toString("");
-    
+
     // SSL settings
     QJsonObject ssl = json["ssl"].toObject();
     m_ignoreSslErrors = ssl["ignore_errors"].toBool(true);
@@ -189,23 +209,28 @@ void ConfigManager::fromJsonObject(const QJsonObject &json)
 // Config methods
 bool ConfigManager::saveConfig()
 {
-    try {
-        if (!ensureConfigDirExists()) {
+    try
+    {
+        if (!ensureConfigDirExists())
+        {
             return false;
         }
-        
+
         QJsonObject json = toJsonObject();
         QJsonDocument doc(json);
-        
+
         QFile file(m_configFilePath);
-        if (!file.open(QIODevice::WriteOnly)) {
+        if (!file.open(QIODevice::WriteOnly))
+        {
             return false;
         }
-        
+
         file.write(doc.toJson());
         file.close();
         return true;
-    } catch (...) {
+    }
+    catch (...)
+    {
         return false;
     }
 }
@@ -213,25 +238,28 @@ bool ConfigManager::saveConfig()
 void ConfigManager::loadConfig()
 {
     QFile file(m_configFilePath);
-    if (!file.exists()) {
+    if (!file.exists())
+    {
         // 使用默认值，不需要做任何事情
         return;
     }
-    
-    if (!file.open(QIODevice::ReadOnly)) {
+
+    if (!file.open(QIODevice::ReadOnly))
+    {
         return;
     }
-    
+
     QByteArray data = file.readAll();
     file.close();
-    
+
     QJsonParseError error;
     QJsonDocument doc = QJsonDocument::fromJson(data, &error);
-    
-    if (error.error != QJsonParseError::NoError) {
+
+    if (error.error != QJsonParseError::NoError)
+    {
         return;
     }
-    
+
     fromJsonObject(doc.object());
 }
 
@@ -243,7 +271,8 @@ bool ConfigManager::ignoreSslErrors() const
 
 void ConfigManager::setIgnoreSslErrors(bool ignore)
 {
-    if (m_ignoreSslErrors != ignore) {
+    if (m_ignoreSslErrors != ignore)
+    {
         m_ignoreSslErrors = ignore;
         emit ignoreSslErrorsChanged();
     }
@@ -257,7 +286,8 @@ QString ConfigManager::serverIp() const
 
 void ConfigManager::setServerIp(const QString &ip)
 {
-    if (m_serverIp != ip) {
+    if (m_serverIp != ip)
+    {
         m_serverIp = ip;
         emit serverIpChanged();
     }
@@ -270,7 +300,8 @@ int ConfigManager::serverPort() const
 
 void ConfigManager::setServerPort(int port)
 {
-    if (m_serverPort != port) {
+    if (m_serverPort != port)
+    {
         m_serverPort = port;
         emit serverPortChanged();
     }
@@ -283,7 +314,8 @@ int ConfigManager::threadCount() const
 
 void ConfigManager::setThreadCount(int count)
 {
-    if (m_threadCount != count) {
+    if (m_threadCount != count)
+    {
         m_threadCount = count;
         emit threadCountChanged();
     }
@@ -296,7 +328,8 @@ QString ConfigManager::username() const
 
 void ConfigManager::setUsername(const QString &username)
 {
-    if (m_username != username) {
+    if (m_username != username)
+    {
         m_username = username;
         emit usernameChanged();
     }
@@ -309,7 +342,8 @@ QString ConfigManager::location() const
 
 void ConfigManager::setLocation(const QString &location)
 {
-    if (m_location != location) {
+    if (m_location != location)
+    {
         m_location = location;
         emit locationChanged();
     }
@@ -322,7 +356,8 @@ bool ConfigManager::autoLocation() const
 
 void ConfigManager::setAutoLocation(bool enabled)
 {
-    if (m_autoLocation != enabled) {
+    if (m_autoLocation != enabled)
+    {
         m_autoLocation = enabled;
         emit autoLocationChanged();
     }
@@ -335,7 +370,8 @@ QString ConfigManager::clientCertPath() const
 
 void ConfigManager::setClientCertPath(const QString &path)
 {
-    if (m_clientCertPath != path) {
+    if (m_clientCertPath != path)
+    {
         m_clientCertPath = path;
         emit clientCertPathChanged();
     }
@@ -348,50 +384,101 @@ QString ConfigManager::clientKeyPath() const
 
 void ConfigManager::setClientKeyPath(const QString &path)
 {
-    if (m_clientKeyPath != path) {
+    if (m_clientKeyPath != path)
+    {
         m_clientKeyPath = path;
         emit clientKeyPathChanged();
     }
 }
 
-// RSA加密解密方法
+// 获取私钥
 QSslKey ConfigManager::getPrivateKey() const
 {
-    return QSslKey(QByteArray(PRIVATE_KEY_PEM), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+    if (!m_privateKeyLoaded)
+    {
+        qDebug() << "Loading private key...";
+        m_privateKey = QSslKey(QByteArray(PRIVATE_KEY_PEM), QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+        m_privateKeyLoaded = true;
+
+        // 添加详细的错误检查
+        if (m_privateKey.isNull())
+        {
+            qWarning() << "Failed to load private key! The key might be invalid or corrupted.";
+        }
+        else
+        {
+            qDebug() << "Private key loaded successfully.";
+        }
+    }
+    return m_privateKey;
 }
 
-QSslCertificate ConfigManager::getCertificate() const
+// 获取公钥
+QSslCertificate ConfigManager::getPublicCert() const
 {
-    return QSslCertificate(QByteArray(CERTIFICATE_PEM), QSsl::Pem);
+    if (!m_publicCertLoaded)
+    {
+        qDebug() << "Loading public certificate...";
+        m_publicCert = QSslCertificate(QByteArray(CERTIFICATE_PEM), QSsl::Pem);
+        m_publicCertLoaded = true;
+
+        // 添加详细的错误检查
+        if (m_publicCert.isNull())
+        {
+            qWarning() << "Failed to load public certificate! The certificate might be invalid or corrupted.";
+        }
+        else
+        {
+            qDebug() << "Public certificate loaded successfully.";
+        }
+    }
+    return m_publicCert;
 }
 
-// 获取公钥（从证书中提取）
-QSslKey ConfigManager::getPublicKey() const
+// 实现获取CA证书的方法
+QSslCertificate ConfigManager::getCACertificate() const
 {
-    QSslCertificate cert = getCertificate();
-    return cert.publicKey();
+    if (!m_caCertificateLoaded)
+    {
+        qDebug() << "Loading CA certificate...";
+        m_caCertificate = QSslCertificate(QByteArray(CA_CERTIFICATE_PEM), QSsl::Pem);
+        m_caCertificateLoaded = true;
+
+        // 添加详细的错误检查
+        if (m_caCertificate.isNull())
+        {
+            qWarning() << "Failed to load CA certificate! The certificate might be invalid or corrupted.";
+        }
+        else
+        {
+            qDebug() << "CA certificate loaded successfully.";
+        }
+    }
+    return m_caCertificate;
 }
 
 // 简化机器指纹获取方法，移除网卡MAC地址获取
 QString ConfigManager::getMachineFingerprint()
 {
     QStringList identifiers;
-    
+
     // 仅获取系统UUID（Windows）
 #ifdef Q_OS_WIN
     QSettings registry("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Cryptography", QSettings::NativeFormat);
     QString machineGuid = registry.value("MachineGuid").toString();
-    if (!machineGuid.isEmpty()) {
+    if (!machineGuid.isEmpty())
+    {
         identifiers << machineGuid;
     }
 #endif
-    
+
     // 如果没有获取到系统UUID，使用系统信息作为备选
-    if (identifiers.isEmpty()) {
+    if (identifiers.isEmpty())
+    {
         identifiers << QSysInfo::machineHostName();
         identifiers << QSysInfo::productType();
     }
-    
+
     // 组合并哈希
     QString combined = identifiers.join("-");
     QCryptographicHash hash(QCryptographicHash::Sha256);
@@ -402,45 +489,49 @@ QString ConfigManager::getMachineFingerprint()
 // 简化密码加密方法，使用简单的对称加密
 QString ConfigManager::encryptPassword(const QString &password)
 {
-    if (password.isEmpty()) {
+    if (password.isEmpty())
+    {
         return QString();
     }
-    
+
     // 使用机器指纹生成密钥
     QString machineId = getMachineFingerprint();
     QByteArray key = QCryptographicHash::hash(machineId.toUtf8(), QCryptographicHash::Sha256);
-    
+
     // 使用Windows CryptoAPI加密
     QByteArray encryptedData = encryptWithCryptoAPI(password.toUtf8(), key);
-    
-    if (encryptedData.isEmpty()) {
+
+    if (encryptedData.isEmpty())
+    {
         qWarning() << "Failed to encrypt password";
         return QString();
     }
-    
+
     return encryptedData.toBase64();
 }
 
 QString ConfigManager::decryptPassword(const QString &encryptedPassword)
 {
-    if (encryptedPassword.isEmpty()) {
+    if (encryptedPassword.isEmpty())
+    {
         return QString();
     }
-    
+
     QByteArray encryptedData = QByteArray::fromBase64(encryptedPassword.toUtf8());
-    
+
     // 使用机器指纹生成密钥
     QString machineId = getMachineFingerprint();
     QByteArray key = QCryptographicHash::hash(machineId.toUtf8(), QCryptographicHash::Sha256);
-    
+
     // 使用Windows CryptoAPI解密
     QByteArray decryptedData = decryptWithCryptoAPI(encryptedData, key);
-    
-    if (decryptedData.isEmpty()) {
+
+    if (decryptedData.isEmpty())
+    {
         qWarning() << "Failed to decrypt password";
         return QString();
     }
-    
+
     return QString::fromUtf8(decryptedData);
 }
 
@@ -448,7 +539,8 @@ QString ConfigManager::generateSalt()
 {
     // 生成16字节的随机盐
     QByteArray salt;
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 16; ++i)
+    {
         salt.append(static_cast<char>(QRandomGenerator::global()->bounded(256)));
     }
     return salt.toHex();
@@ -456,26 +548,26 @@ QString ConfigManager::generateSalt()
 
 bool ConfigManager::verifyPassword(const QString &password)
 {
-    if (m_passwordHash.isEmpty()) {
+    if (m_passwordHash.isEmpty())
+    {
         return password.isEmpty();
     }
-    
+
     // 解密存储的密码并比较
     QString decryptedPassword = decryptPassword(m_passwordHash);
     return decryptedPassword == password;
 }
 
-
 // 添加一个生成基于机器ID的IV的辅助方法
 QByteArray ConfigManager::generateIVFromMachineID()
 {
     QString machineFingerprint = getMachineFingerprint();
-    
+
     // 使用机器指纹生成固定的16字节IV
     QCryptographicHash hash(QCryptographicHash::Sha256);
     hash.addData(machineFingerprint.toUtf8());
     hash.addData("IV_SALT"); // 添加盐值以区分密钥和IV的用途
-    
+
     QByteArray hashResult = hash.result();
     // 取前16字节作为AES的IV
     return hashResult.left(16);
@@ -487,64 +579,75 @@ QByteArray ConfigManager::encryptWithCryptoAPI(const QByteArray &data, const QBy
     HCRYPTKEY hKey = 0;
     HCRYPTHASH hHash = 0;
     QByteArray result;
-    
-    do {
+
+    do
+    {
         // 获取加密服务提供者
-        if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+        if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+        {
             break;
         }
-        
+
         // 创建哈希对象
-        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
+        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+        {
             break;
         }
-        
+
         // 添加密钥数据到哈希
-        if (!CryptHashData(hHash, (BYTE*)key.constData(), key.size(), 0)) {
+        if (!CryptHashData(hHash, (BYTE *)key.constData(), key.size(), 0))
+        {
             break;
         }
-        
+
         // 从哈希派生密钥
-        if (!CryptDeriveKey(hProv, CALG_AES_256, hHash, 0, &hKey)) {
+        if (!CryptDeriveKey(hProv, CALG_AES_256, hHash, 0, &hKey))
+        {
             break;
         }
-        
+
         // 使用基于机器ID的IV
         QByteArray iv = generateIVFromMachineID();
-        
+
         // 设置加密模式为CBC并设置IV
         DWORD mode = CRYPT_MODE_CBC;
-        if (!CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0)) {
+        if (!CryptSetKeyParam(hKey, KP_MODE, (BYTE *)&mode, 0))
+        {
             break;
         }
-        
-        if (!CryptSetKeyParam(hKey, KP_IV, (BYTE*)iv.data(), 0)) {
+
+        if (!CryptSetKeyParam(hKey, KP_IV, (BYTE *)iv.data(), 0))
+        {
             break;
         }
-        
+
         // 准备加密数据
         QByteArray encryptData = data;
         DWORD dataLen = encryptData.size();
         DWORD bufferLen = dataLen + 16; // AES块大小填充
         encryptData.resize(bufferLen);
-        
+
         // 执行加密
-        if (!CryptEncrypt(hKey, 0, TRUE, 0, (BYTE*)encryptData.data(), &dataLen, bufferLen)) {
+        if (!CryptEncrypt(hKey, 0, TRUE, 0, (BYTE *)encryptData.data(), &dataLen, bufferLen))
+        {
             break;
         }
-        
+
         encryptData.resize(dataLen);
-        
+
         // 由于IV是基于机器ID生成的，不需要存储IV，直接返回加密数据
         result = encryptData;
-        
+
     } while (false);
-    
+
     // 清理资源
-    if (hKey) CryptDestroyKey(hKey);
-    if (hHash) CryptDestroyHash(hHash);
-    if (hProv) CryptReleaseContext(hProv, 0);
-    
+    if (hKey)
+        CryptDestroyKey(hKey);
+    if (hHash)
+        CryptDestroyHash(hHash);
+    if (hProv)
+        CryptReleaseContext(hProv, 0);
+
     return result;
 }
 
@@ -554,63 +657,73 @@ QByteArray ConfigManager::decryptWithCryptoAPI(const QByteArray &encryptedData, 
     HCRYPTKEY hKey = 0;
     HCRYPTHASH hHash = 0;
     QByteArray result;
-    
-    do {
+
+    do
+    {
         // 获取加密服务提供者
-        if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+        if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+        {
             break;
         }
-        
+
         // 创建哈希对象
-        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash)) {
+        if (!CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHash))
+        {
             break;
         }
-        
+
         // 添加密钥数据到哈希
-        if (!CryptHashData(hHash, (BYTE*)key.constData(), key.size(), 0)) {
+        if (!CryptHashData(hHash, (BYTE *)key.constData(), key.size(), 0))
+        {
             break;
         }
-        
+
         // 从哈希派生密钥
-        if (!CryptDeriveKey(hProv, CALG_AES_256, hHash, 0, &hKey)) {
+        if (!CryptDeriveKey(hProv, CALG_AES_256, hHash, 0, &hKey))
+        {
             break;
         }
-        
+
         // 使用相同的基于机器ID的IV
         QByteArray iv = generateIVFromMachineID();
-        
+
         // 设置解密模式为CBC并设置IV
         DWORD mode = CRYPT_MODE_CBC;
-        if (!CryptSetKeyParam(hKey, KP_MODE, (BYTE*)&mode, 0)) {
+        if (!CryptSetKeyParam(hKey, KP_MODE, (BYTE *)&mode, 0))
+        {
             break;
         }
-        
-        if (!CryptSetKeyParam(hKey, KP_IV, (BYTE*)iv.data(), 0)) {
+
+        if (!CryptSetKeyParam(hKey, KP_IV, (BYTE *)iv.data(), 0))
+        {
             break;
         }
-        
+
         // 准备解密数据
         QByteArray decryptData = encryptedData;
         DWORD dataLen = decryptData.size();
-        
+
         // 执行解密
-        if (!CryptDecrypt(hKey, 0, TRUE, 0, (BYTE*)decryptData.data(), &dataLen)) {
+        if (!CryptDecrypt(hKey, 0, TRUE, 0, (BYTE *)decryptData.data(), &dataLen))
+        {
             break;
         }
-        
+
         decryptData.resize(dataLen);
         result = decryptData;
-        
+
     } while (false);
-    
+
     // 清理资源
-    if (hKey) CryptDestroyKey(hKey);
-    if (hHash) CryptDestroyHash(hHash);
-    if (hProv) CryptReleaseContext(hProv, 0);
-    
+    if (hKey)
+        CryptDestroyKey(hKey);
+    if (hHash)
+        CryptDestroyHash(hHash);
+    if (hProv)
+        CryptReleaseContext(hProv, 0);
+
     return result;
 }
-
 
 QString ConfigManager::hashPassword(const QString &password, const QString &salt)
 {
@@ -620,14 +733,25 @@ QString ConfigManager::hashPassword(const QString &password, const QString &salt
 
 bool ConfigManager::setPassword(const QString &password)
 {
-    if (password.isEmpty()) {
-        m_passwordHash = "";
-        m_salt = "";
-        return true;
-    }
-    
     // 使用RSA加密存储
     m_passwordHash = encryptPassword(password);
     m_salt = generateSalt();
     return true;
+}
+
+// 实现获取证书通用名称的方法
+QString ConfigManager::getCertificateSubjectName() const
+{
+    // 获取证书
+    QSslCertificate certificate = getPublicCert();
+    if (certificate.isNull())
+    {
+        qWarning() << "Certificate is null, cannot extract subject name";
+        return "Unkown User";
+    }
+
+    QString    subjectName = certificate.subjectInfo(QSslCertificate::CommonName).join(", ");
+    qInfo() << "CommonName:" << subjectName;
+
+    return subjectName;
 }

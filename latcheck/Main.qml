@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.VirtualKeyboard
+import Qt.labs.folderlistmodel 2.1
 import LatCheck 2.0
 
 ApplicationWindow {
@@ -36,22 +37,31 @@ ApplicationWindow {
             saveConfigStatus = ""
         }
     }
+
     property bool isRunning: latencyChecker.running
     property bool isLoggedIn: false
-    // 删除这四行重复的属性定义：
-    // property string testConnectionStatus: ""
-    // property bool testConnectionSuccess: false
-    // property string saveConfigStatus: ""
-    // property bool saveConfigSuccess: false
+
     
     header: ToolBar {
         RowLayout {
             anchors.fill: parent
+                       
             
             Label {
                 text: "LatCheck v2.0"
                 font.bold: true
                 Layout.fillWidth: true
+            }
+
+            // 添加证书用户名显示
+            Label {
+                id: certificateSubjectName
+                text: {
+                    return configManager.getCertificateSubjectName()
+                }
+                font.bold: true
+                Layout.alignment: Qt.AlignRight                
+                visible: certificateSubjectName.text.length > 0               
             }
             
             ToolButton {
@@ -137,7 +147,7 @@ ApplicationWindow {
                 GroupBox {
                     title: "Authentication"
                     Layout.fillWidth: true
-                    visible: !isLoggedIn
+                    // 移除：visible: !isLoggedIn
                     
                     RowLayout {
                         anchors.fill: parent
@@ -150,6 +160,7 @@ ApplicationWindow {
                             text: configManager.username
                             onTextChanged: configManager.username = text
                             inputMethodHints: Qt.ImhNone  // 允许所有输入法
+                            // 移除：visible: !isLoggedIn  // 保留输入框显示
                         }
                         
                         Label { text: "Password:" }
@@ -158,40 +169,49 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             placeholderText: "Password"
                             echoMode: TextInput.Password
+                            // 移除：visible: !isLoggedIn  // 保留输入框显示
                         }
                         
                         Button {
-                            text: "Login"
-                            enabled: 
+                            // 修改：根据登录状态动态显示按钮文本
+                            text: isLoggedIn ? "Logout" : "Login"
+                            // 添加：设置宽度与start按钮一致
+                            Layout.preferredWidth: 100
+                            // 修改：根据登录状态设置不同的启用条件
+                            enabled: isLoggedIn || (
                                     mainUsernameField.text.length > 0 && 
                                     mainPasswordField.text.length > 0 &&
-                                    !isRunning  // 添加：运行时禁用login按钮
+                                    !isRunning  // 运行时禁用登录/登出按钮
+                            )
+                            
                             onClicked: {
-                                logger.logMessage("Login attempt with username: " + mainUsernameField.text)
-                                
-                                // 添加：如果已连接，先断开
-                                if (networkManager.connected) {
-                                    logger.logMessage("→ Disconnecting existing connection...")
+                                if (isLoggedIn) {
+                                    // 登出逻辑 - 不操作任何输入框
+                                    isLoggedIn = false
                                     networkManager.disconnectFromServer()
-                                }
-                                
-                                configManager.username = mainUsernameField.text
-                                if (configManager.setPassword(mainPasswordField.text)) {
-                                    configManager.saveConfig()
+                                    logger.logMessage("User logged out")
+                                } else {
+                                    // 登录逻辑保持不变
+                                    logger.logMessage("Login attempt with username: " + mainUsernameField.text)
                                     
-                                    // 延迟一点时间确保断开完成后再连接
-                                    Qt.callLater(function() {
-                                        networkManager.connectToServer(
-                                            configManager.serverIp,
-                                            configManager.serverPort,
-                                            "",
-                                            "",
-                                            true
-                                        )
-                                        
-                                        // 连接成功后自动登录
-                                        networkManager.login(mainUsernameField.text, mainPasswordField.text)
-                                    })
+                                    // 如果已连接，先断开
+                                    if (networkManager.connected) {
+                                        logger.logMessage("Disconnecting existing connection...")
+                                        networkManager.disconnectFromServer()
+                                    }
+                                    
+                                    configManager.username = mainUsernameField.text
+                                    if (configManager.setPassword(mainPasswordField.text)) {
+                                        configManager.saveConfig()
+                                         
+                                        // 延迟一点时间确保断开完成后再连接
+                                        Qt.callLater(function() {
+                                            networkManager.login(
+                                                mainUsernameField.text,
+                                                mainPasswordField.text
+                                            )
+                                        })
+                                    }
                                 }
                             }
                         }
@@ -247,17 +267,7 @@ ApplicationWindow {
                             font.bold: true
                         }
                         
-                        // 添加：logout按钮
-                        Button {
-                            text: "Logout"
-                            visible: networkManager.connected && isLoggedIn
-                            onClicked: {
-                                isLoggedIn = false
-                                networkManager.disconnectFromServer()
-                                logger.logMessage("User logged out")
-                                mainPasswordField.text = ""
-                            }
-                        }
+                        // 移除：多余的logout按钮，已在认证区域实现
                     }
                     
                     Item { Layout.preferredWidth: 20 }
@@ -275,10 +285,10 @@ ApplicationWindow {
                                     configManager.location = locationField.text
                                 }
                                 
-                                logger.logMessage("=== LATENCY CHECK START ===")
+                                logger.logMessage("Latency check is starting...")
                                 logger.logMessage("Target location: " + locationField.text)
                                 logger.logMessage("Thread count: " + configManager.threadCount)
-                                logger.logMessage("→ Requesting server list from server...")
+                                logger.logMessage("Requesting server list from server...")
                                 
                                 configManager.saveConfig()
                                 // 修改：使用sendListRequest()而不是requestIpList()
@@ -304,7 +314,50 @@ ApplicationWindow {
                         }
                     }
                     
+                    // 添加：填充空间使Clear Log按钮靠右
                     Item { Layout.fillWidth: true }
+                    
+                    // 添加：Export IP按钮
+                    Button {
+                        id: exportIpButton
+                        text: "Save IPs"
+                        // 只有在有IP列表时才启用
+                        enabled: isLoggedIn && receivedIpList.length > 0 && !isRunning
+                        Layout.preferredWidth: 100
+                        // 修改exportIpButton的onClicked处理
+                        onClicked:  {
+                            // 直接使用用户提供的默认路径或请求用户输入
+                            var defaultPath = "ip_list.txt";
+                            // 在Windows上使用当前目录下的ip_list.txt
+                            var filePath = defaultPath;
+                            
+                            // 保存IP列表
+                            if (networkManager.saveIpListToFile()) {
+                                // statusMessage = "IP列表已成功导出到: " + filePath;
+                                // statusSuccess = true;
+                                // logger.logMessage( "✅ IP list has been saved to " + filePath);
+                            } else {
+                                // statusMessage = "导出IP列表失败";
+                                // statusSuccess = false;
+                                logger.logMessage( "❌ IP list failed saving to " + filePath);
+                            }
+                            // statusTimer.restart();
+                        }
+                    }
+                    
+                    Item { Layout.preferredWidth: 20 }
+                    
+                    // 添加：Clear Log按钮
+                    Button {
+                        id: clearLogButton
+                        text: "Clear Log"
+                        enabled: !isRunning
+                        Layout.preferredWidth: 100
+                        onClicked: {
+                            logTextArea.clearLog()
+                            logger.logMessage("Log cleared")
+                        }
+                    }
                 }
                 
                 RowLayout {
@@ -355,7 +408,7 @@ ApplicationWindow {
                             // 添加带行号的日志函数
                             function appendLogWithLineNumber(message) {
                                 var logLine = String(lineNumber).padStart(3, '0') + ": " + message
-                                append(logLine)
+                                append(message)
                                 lineNumber++
                                 // 自动滚动到底部
                                 Qt.callLater(function() {
@@ -515,9 +568,7 @@ ApplicationWindow {
                                     networkManager.testConnection(
                                         serverIpField.text, 
                                         parseInt(serverPortField.text) || 8080,
-                                        "",
-                                        "",
-                                        true
+                                        false
                                     )
                                 }
                             }
@@ -607,7 +658,9 @@ ApplicationWindow {
     }
     
     property bool isLoggingIn: false  // Add this to the main ApplicationWindow
-    
+    // 添加：存储接收到的IP列表
+    property variant receivedIpList: []
+
     // Keep the Connections block but move it to the proper location within the main ApplicationWindow
     Connections {
         target: networkManager
@@ -615,6 +668,7 @@ ApplicationWindow {
             if (!networkManager.connected) {
                 isLoggedIn = false
                 isLoggingIn = false  // 合并：添加isLoggingIn重置
+                receivedIpList = []  // 网络断开时清空IP列表
                 // 添加：网络断开时重置运行状态
                 if (isRunning) {
                     latencyChecker.stopChecking()
@@ -623,76 +677,46 @@ ApplicationWindow {
                 }
             }
         }
-        
+
         function onLoginResult(success, message) {
             if (success) {
                 isLoggedIn = true
-                logger.logMessage("✓ Login successful: " + message)
+                //logger.logMessage("✓ Login successful: " + message)
             } else {
                 isLoggedIn = false
+                receivedIpList = []  // 登录失败时清空IP列表
                 // 添加：登录失败时确保重置状态
                 if (isRunning) {
                     latencyChecker.stopChecking()
                     isRunning = false
                 }
-                logger.logMessage("✗ Login failed: " + message)
+                //logger.logMessage("✗ Login failed: " + message)
                 // Clear password field on login failure
                 if (typeof mainPasswordField !== 'undefined') {
                     mainPasswordField.text = ""
                 }
             }
         }
-        
-        // 删除重复的onConnectedChanged函数定义
-        // function onConnectedChanged() {
-        //     if (!networkManager.connected) {
-        //         isLoggedIn = false
-        //         isLoggingIn = false
-        //     }
-        // }
+
     }
 
-    // 删除这些重复的组件（第518-620行）
-    // Authentication Section - 修改登录部分
-    // GroupBox {
-    //     title: "Authentication"
-    //     Layout.fillWidth: true
-    //     visible: !isLoggedIn  // 登录成功后隐藏
-    //     ...
-    // }
-    
-    // 新增：登出部分
-    // GroupBox {
-    //     title: "User Session"
-    //     Layout.fillWidth: true
-    //     visible: isLoggedIn  // 登录成功后显示
-    //     ...
-    // }
+
 
     // Ensure all event handlers are properly contained in Connections blocks
     Connections {
         target: networkManager
         function onIpListReceived(ipList) {
-            // 收到服务器列表后启动延迟检测
-            // if (stackView.currentItem && stackView.currentItem.logArea) {
-            //     stackView.currentItem.logArea.append("✓ Data retrieval successful: Received " + ipList.length + " servers")
-            //     stackView.currentItem.logArea.append("→ Starting latency detection...")
-            // }
-            // // 添加logger日志
-            // logger.logMessage("✓ Received " + ipList.length + " servers from server")
-            // logger.logMessage("→ Starting latency detection with " + configManager.threadCount + " threads")
-            
-            latencyChecker.startChecking(ipList, configManager.threadCount)
+            // 保存接收到的IP列表
+            receivedIpList = ipList
+ 
+            // latencyChecker.startChecking(ipList, configManager.threadCount)
         }
     }
 
     Connections {
         target: networkManager
         function onErrorOccurred(error) {
-            // 使用存储的引用，直接显示原始错误消息
-            if (logTextAreaRef && logTextAreaRef.append) {
-                logTextAreaRef.append(error)  // 直接显示error内容，不添加时间戳前缀
-            }
+            logger.logMessage(error);
         }
     }
 
@@ -706,40 +730,35 @@ ApplicationWindow {
             
             // 启动定时器清除状态
             statusTimer.restart()
-            
-            // if (stackView.currentItem && stackView.currentItem.logArea) {
-            //     var statusMsg = success ? "✓ Successfully connected to server" : "✗ Failed to connect to server: " + message
-            //     stackView.currentItem.logArea.append(statusMsg)
-            // }
+
         }
 
-        // 添加报告上传结果处理（需要在NetworkManager中添加相应信号）
-        // function onReportUploadResult(success, reportId, message) {
-        //     if (stackView.currentItem && stackView.currentItem.logArea) {
-        //         if (success && reportId) {
-        //             stackView.currentItem.logArea.append("✓ Report upload successful, Report ID: " + reportId)
-        //         } else {
-        //             stackView.currentItem.logArea.append("✗ Report upload failed: " + message)
-        //         }
-        //     }
-            
-        //     // 添加logger日志
-        //     if (success && reportId) {
-        //         logger.logMessage("✓ Report upload successful, Report ID: " + reportId)
-        //         logger.logMessage("=== LATENCY CHECK COMPLETED ===")
-        //     } else {
-        //         logger.logMessage("✗ Report upload failed: " + message)
-        //     }
-        // }
     }
 
+     // 在现有 Connections 块之后添加
     Connections {
-        target: logger
-        function onLogMessageAdded(message) {
-            // 删除所有日志显示逻辑
-            if (stackView && stackView.currentItem && stackView.currentItem.logArea) {
-                stackView.currentItem.logArea.append(message)
+        target: networkManager
+        function onLatencyCheckFinished(results) {
+            // 显示延迟检测结果
+            // logger.logMessage("Received latency check results for " + results.length + " servers")
+            
+            // 也可以直接在这里调用发送报告的代码（如果需要）
+            if (isLoggedIn && networkManager.connected && results.length > 0) {
+                var location = configManager.location
+                networkManager.sendReportRequest(location, results)
             }
+        }
+
+        function onReportUploadResult(success, reportId, message) {
+            // 在报告上传完成后立即重置运行状态
+            isRunning = false
+            
+            // 记录上传结果信息
+            if (success) {
+                logger.logMessage("✅ Report uploaded successfully. ")
+            } else {
+                logger.logMessage("❌ Report upload failed: " + message)
+            }            
         }
     }
     
@@ -764,25 +783,10 @@ ApplicationWindow {
 
     Connections {
         target: latencyChecker
-        // 移除延时结果的日志输出
-        // function onLatencyResult(serverId, ipAddr, latency) {
-        //     if (stackView.currentItem && stackView.currentItem.logTextArea) {
-        //         if (latency >= 0) {
-        //             stackView.currentItem.logTextArea.appendLogWithLineNumber("→ Node ID " + serverId + " latency: " + latency + "ms")
-        //         } else {
-        //             stackView.currentItem.logTextArea.appendLogWithLineNumber("✗ Node ID " + serverId + " latency detection failed")
-        //         }
-        //     }
-        // }
         function onCheckingFinished(results) {
             // 添加：确保检测完成后重置状态
             isRunning = false
-            
-            // if (stackView.currentItem && stackView.currentItem.logArea) {
-            //     stackView.currentItem.logArea.append("✓ Latency detection completed")
-            //     stackView.currentItem.logArea.append("→ Uploading report...")
-            // }
-            
+
             // 自动上传报告
             if (isLoggedIn && results.length > 0) {
                 var location = configManager.location // 修改为使用与日志相同的位置数据源
@@ -798,6 +802,16 @@ ApplicationWindow {
             if (isRunning !== latencyChecker.running) {
                 isRunning = latencyChecker.running
             }
+        }
+    }
+
+    Connections {
+        target: logger
+        function onLogMessageAdded(message) {
+            if (logTextAreaRef && logTextAreaRef.append) {
+                logTextAreaRef.appendLogWithLineNumber(message);
+            }
+
         }
     }
 

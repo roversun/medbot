@@ -50,7 +50,7 @@ public:
     int progress() const;
     int totalIps() const;
 
-    Q_INVOKABLE void startChecking(const QVariantList &serverList, int threadCount = 4);
+    void startChecking(const QVariantList &serverList, int threadCount = 4);
     Q_INVOKABLE void stopChecking();
 
 private slots:

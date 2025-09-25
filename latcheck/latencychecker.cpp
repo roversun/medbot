@@ -23,7 +23,7 @@ void LatencyWorker::stop()
 
 void LatencyWorker::startChecking()
 {
-    emit logMessage("Starting latency check for " + QString::number(m_serverList.size()) + " servers");
+    // emit logMessage("Starting latency check for " + QString::number(m_serverList.size()) + " servers");
 
     for (int i = 0; i < m_serverList.size(); ++i)
     {
@@ -143,16 +143,13 @@ int LatencyWorker::pingHost(quint32 ipAddr)
 }
 
 // LatencyChecker Implementation
+// LatencyChecker构造函数修改
 LatencyChecker::LatencyChecker(QObject *parent)
     : QObject(parent), m_running(false), m_progress(0), m_totalIps(0), m_finishedWorkers(0)
 {
 }
 
-LatencyChecker::~LatencyChecker()
-{
-    stopChecking();
-}
-
+// 修复所有缺少的getter方法
 bool LatencyChecker::running() const
 {
     return m_running;
@@ -168,6 +165,13 @@ int LatencyChecker::totalIps() const
     return m_totalIps;
 }
 
+// 添加析构函数实现
+LatencyChecker::~LatencyChecker()
+{
+    stopChecking();
+}
+
+// 添加完整的startChecking方法实现
 void LatencyChecker::startChecking(const QVariantList &serverList, int threadCount)
 {
     if (m_running)
@@ -176,6 +180,7 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
         return;
     }
 
+    qDebug() << "Start latency check with " << threadCount << " threads";
     emit logMessage("Initializing latency check with " + QString::number(threadCount) + " threads");
     cleanup();
 
@@ -187,7 +192,6 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
         {
             QVariantMap server = item.toMap();
             quint32 serverId = server["server_id"].toUInt();
-            // QString ipString = server["ip_address"].toString();
             quint32 ipAddr = server["ip_address"].toUInt();
 
             QHostAddress addr(ipAddr);
@@ -238,8 +242,6 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
             break;
         }
 
-        emit logMessage("Creating worker thread " + QString::number(i + 1) + " with " + QString::number(threadServers.size()) + " servers");
-
         QThread *thread = new QThread(this);
         LatencyWorker *worker = new LatencyWorker(threadServers);
 
@@ -261,10 +263,127 @@ void LatencyChecker::startChecking(const QVariantList &serverList, int threadCou
     }
 }
 
-// 新添加的槽函数，用于处理Worker的日志消息
+// 修复字符串拼接语法错误
+void LatencyChecker::onWorkerFinished()
+{
+    // 将静态互斥锁改为局部变量
+    QMutexLocker locker(&m_resultsMutex); // 使用现有的结果互斥锁保护所有共享数据
+
+    m_finishedWorkers++;
+    qDebug() << "Worker finished, total:" << m_finishedWorkers << "/" << m_workers.size();
+
+    // 只有当所有worker都完成时，才进行后续处理
+    if (m_finishedWorkers >= m_workers.size())
+    {
+        // 立即设置running为false，确保可以重新启动扫描
+        setRunning(false);
+
+        // 在释放互斥锁后执行lambda函数
+        // 创建临时变量保存结果状态，避免在lambda中访问共享数据
+        const int resultsCount = m_results.size();
+        const int successCount = m_successResults.size();
+        const int failedCount = m_failedResults.size();
+        const auto finalResults = m_results;
+
+        // 释放锁
+        locker.unlock();
+
+        // 使用QTimer::singleShot在主事件循环中发射信号，避免死锁
+        QTimer::singleShot(0, this, [this, resultsCount, successCount, failedCount, finalResults]()
+                           {
+            QString logMsg = QString("Latency check complete: %1 servers processed, %2 successful, %3 failed")
+                               .arg(resultsCount).arg(successCount).arg(failedCount);
+            qDebug() << logMsg;
+            emit logMessage(logMsg);
+            emit checkingFinished(finalResults); });
+    }
+}
+
+void LatencyChecker::onWorkerResult(quint32 serverId, quint32 ipAddr, int latency)
+{
+    QMutexLocker locker(&m_resultsMutex);
+
+    QVariantMap result;
+    result["server_id"] = serverId;
+    result["ip_address"] = ipAddr;
+    result["latency"] = latency;
+    m_results.append(result);
+
+    // 记录成功和失败的详细结果
+    if (latency >= 0)
+    {
+        m_successResults.append(qMakePair(serverId, latency));
+    }
+    else
+    {
+        m_failedResults.append(serverId);
+    }
+
+    emit latencyResult(serverId, ipAddr, latency);
+
+    setProgress(m_results.size());
+
+    // 每处理100个结果输出一次进度信息
+    if (m_results.size() % 100 == 0)
+    {
+        emit logMessage("Progress: " + QString::number(m_results.size()) + "/" + QString::number(m_totalIps) +
+                        " processed, " + QString::number(m_successResults.size()) + " successful");
+    }
+}
+
+void LatencyChecker::setRunning(bool running)
+{
+    if (m_running != running)
+    {
+        m_running = running;
+        emit runningChanged();
+    }
+}
+
+void LatencyChecker::setProgress(int progress)
+{
+    if (m_progress != progress)
+    {
+        m_progress = progress;
+        emit progressChanged();
+    }
+}
+
+void LatencyChecker::setTotalIps(int total)
+{
+    if (m_totalIps != total)
+    {
+        m_totalIps = total;
+        emit totalIpsChanged();
+    }
+}
+
+void LatencyChecker::cleanup()
+{
+    // 停止所有工作线程
+    stopChecking();
+
+    // 清空所有结果
+    m_results.clear();
+    m_successResults.clear();
+    m_failedResults.clear();
+
+    // 重置计数器
+    m_finishedWorkers = 0;
+    setProgress(0);
+    // setTotalIps(0);
+
+    // 确保设置为非运行状态
+    setRunning(false);
+
+    m_threads.clear();
+    m_workers.clear();
+    m_finishedWorkers = 0;
+}
+
 void LatencyChecker::onWorkerLogMessage(const QString &message)
 {
-    // 只转发失败相关的日志消息，过滤掉成功的详细日志，并去掉[LatencyChecker]前缀
+    // 只转发失败相关的日志消息
     if (message.contains("Failed") ||
         message.contains("Error") ||
         message.contains("Warning") ||
@@ -304,148 +423,4 @@ void LatencyChecker::stopChecking()
 
     cleanup();
     setRunning(false);
-}
-
-void LatencyChecker::onWorkerResult(quint32 serverId, quint32 ipAddr, int latency)
-{
-    QMutexLocker locker(&m_resultsMutex);
-
-    QVariantMap result;
-    result["server_id"] = serverId;
-    result["ip_address"] = ipAddr;
-    result["latency"] = latency;
-    m_results.append(result);
-
-    // 记录成功和失败的详细结果
-    if (latency >= 0)
-    {
-        m_successResults.append(qMakePair(serverId, latency));
-    }
-    else
-    {
-        m_failedResults.append(serverId);
-    }
-
-    emit latencyResult(serverId, ipAddr, latency);
-
-    setProgress(m_results.size());
-
-    // 每处理100个结果输出一次进度信息
-    if (m_results.size() % 100 == 0)
-    {
-        emit logMessage("Progress: " + QString::number(m_results.size()) + "/" + QString::number(m_totalIps) +
-                        " processed, " + QString::number(m_successResults.size()) + " successful");
-    }
-}
-
-void LatencyChecker::onWorkerFinished()
-{
-    m_finishedWorkers++;
-
-    // 添加额外的检查，确保所有ping操作真正完成
-    qDebug() << "Worker finished, total:" << m_finishedWorkers << "/" << m_workers.size();
-
-    // 只有当所有worker都完成且没有活跃的ping操作时，才将running设置为false
-    if (m_finishedWorkers >= m_workers.size())
-    {
-        // 确保结果计数与总IP数匹配
-        if (m_results.size() >= m_totalIps)
-        {
-            qDebug() << "All ping operations completed, setting running to false";
-
-            // 输出详细的成功和失败统计
-            QString successList;
-            for (const auto &success : m_successResults)
-            {
-                if (!successList.isEmpty())
-                    successList += ", ";
-                successList += "id" + QString::number(success.first) + "-" + QString::number(success.second) + "ms";
-            }
-
-            QString failedList;
-            for (quint32 failedId : m_failedResults)
-            {
-                if (!failedList.isEmpty())
-                    failedList += ", ";
-                failedList += "id" + QString::number(failedId);
-            }
-
-            emit logMessage("Latency check completed: " + QString::number(m_results.size()) + " total");
-            if (!successList.isEmpty())
-            {
-                emit logMessage("成功检测：" + successList);
-            }
-            if (!failedList.isEmpty())
-            {
-                emit logMessage("检测失败：" + failedList);
-            }
-
-            setRunning(false);
-            emit checkingFinished(m_results);
-        }
-        else
-        {
-            qDebug() << "Warning: Not all ping results received yet. Results:" << m_results.size() << "/" << m_totalIps;
-            // 添加一个小延迟，给剩余结果时间到达
-            QTimer::singleShot(500, this, [this]()
-                               {
-                // 输出详细的成功和失败统计
-                QString successList;
-                for (const auto &success : m_successResults) {
-                    if (!successList.isEmpty()) successList += ", ";
-                    successList += "id" + QString::number(success.first) + "-" + QString::number(success.second) + "ms";
-                }
-                
-                QString failedList;
-                for (quint32 failedId : m_failedResults) {
-                    if (!failedList.isEmpty()) failedList += ", ";
-                    failedList += "id" + QString::number(failedId);
-                }
-                
-                emit logMessage("Latency check completed: " + QString::number(m_results.size()) + " total");
-                if (!successList.isEmpty()) {
-                    emit logMessage("成功检测：" + successList);
-                }
-                if (!failedList.isEmpty()) {
-                    emit logMessage("检测失败：" + failedList);
-                }
-                
-                setRunning(false);
-                emit checkingFinished(m_results); });
-        }
-    }
-}
-
-void LatencyChecker::setRunning(bool running)
-{
-    if (m_running != running)
-    {
-        m_running = running;
-        emit runningChanged();
-    }
-}
-
-void LatencyChecker::setProgress(int progress)
-{
-    if (m_progress != progress)
-    {
-        m_progress = progress;
-        emit progressChanged();
-    }
-}
-
-void LatencyChecker::setTotalIps(int total)
-{
-    if (m_totalIps != total)
-    {
-        m_totalIps = total;
-        emit totalIpsChanged();
-    }
-}
-
-void LatencyChecker::cleanup()
-{
-    m_threads.clear();
-    m_workers.clear();
-    m_finishedWorkers = 0;
 }
