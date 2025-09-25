@@ -17,12 +17,17 @@
     "port": 8443,
     "certificate": "config/certs/server.crt",
     "private_key": "config/certs/server.key",
+    "ca_certificate": "config/certs/ca.crt",
     "max_connections": 1000,
     "connection_timeout": 300,
     "enable_ssl": true,
     "protocol": "TLSv1.2",
     "cipher_suites": [],
-    "require_client_cert": false
+    "require_client_cert": true,
+    "use_whitelist": true,
+    "use_blacklist": false,
+    "whitelist_path": "config/whitelist.txt",
+    "blacklist_path": "config/blacklist.txt"
   },
   "logging": {
     "level": "debug",

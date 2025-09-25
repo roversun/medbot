@@ -97,7 +97,7 @@ public:
     static MessageHeader deserializeHeader(const QByteArray &data);
 
     // 序列化登录请求
-    // static QByteArray serializeLoginRequest(const QString& userName, const QString& passwordHash);
+    static QByteArray serializeLoginRequest(const QString &userName, const QString &passwordHash);
 
     // 反序列化登录请求
     static LoginRequestData deserializeLoginRequest(const QByteArray &data);

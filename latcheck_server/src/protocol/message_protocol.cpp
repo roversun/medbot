@@ -38,6 +38,26 @@ MessageHeader MessageProtocol::deserializeHeader(const QByteArray &data)
     return header;
 }
 
+QByteArray MessageProtocol::serializeLoginRequest(const QString &userName, const QString &passwordHash)
+{
+    LoginRequestData loginData;
+
+    // 复制用户名
+    QByteArray userNameBytes = userName.toUtf8();
+    memcpy(loginData.userName, userNameBytes.constData(),
+           qMin(userNameBytes.size(), static_cast<int>(sizeof(loginData.userName) - 1)));
+
+    // 复制密码哈希
+    QByteArray passwordBytes = passwordHash.toUtf8();
+    memcpy(loginData.password, passwordBytes.constData(),
+           qMin(passwordBytes.size(), static_cast<int>(sizeof(loginData.password) - 1)));
+
+    // 序列化为字节数组
+    QByteArray data;
+    data.append(reinterpret_cast<const char *>(&loginData), sizeof(LoginRequestData));
+    return data;
+}
+
 LoginRequestData MessageProtocol::deserializeLoginRequest(const QByteArray &data)
 {
     LoginRequestData loginData;

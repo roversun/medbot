@@ -25,7 +25,9 @@ TlsServer::TlsServer(QObject *parent)
       cleanup_timer_(new QTimer(this)), max_connections_(100), connection_timeout_(300) // 5分钟
       ,
       auth_timeout_(30), // 30秒
-      auth_manager_(nullptr)
+      auth_manager_(nullptr),
+      use_whitelist_(false),
+      use_blacklist_(false)
 {
     // 设置清理定时器
     cleanup_timer_->setInterval(60000); // 每分钟清理一次
@@ -331,6 +333,7 @@ void TlsServer::onCleanupTimer()
     }
 }
 
+// 修改initializeSsl方法，使用正确的SSL验证配置
 bool TlsServer::initializeSsl()
 {
     if (!config_manager_)
@@ -340,6 +343,12 @@ bool TlsServer::initializeSsl()
 
     QString certPath = config_manager_->getCertificatePath();
     QString keyPath = config_manager_->getPrivateKeyPath();
+    QString caCertPath = config_manager_->getCaCertificatePath();
+    bool requireClientCert = config_manager_->getRequireClientCert();
+    use_whitelist_ = config_manager_->getUseWhitelist();
+    use_blacklist_ = config_manager_->getUseBlacklist();
+    whitelist_path_ = config_manager_->getWhitelistPath();
+    blacklist_path_ = config_manager_->getBlacklistPath();
 
     // 加载证书
     QFile certFile(certPath);
@@ -373,11 +382,61 @@ bool TlsServer::initializeSsl()
         return false;
     }
 
+    // 加载CA证书
+    if (requireClientCert && !caCertPath.isEmpty())
+    {
+        if (!loadCaCertificates())
+        {
+            Logger::instance()->error("Failed to load CA certificates");
+            return false;
+        }
+    }
+
+    // 加载白名单和黑名单
+    if (use_whitelist_ && !whitelist_path_.isEmpty())
+    {
+        if (!loadSubjectList(whitelist_path_, whitelisted_subjects_))
+        {
+            Logger::instance()->warning(QString("Failed to load whitelist: %1").arg(whitelist_path_));
+        }
+        else
+        {
+            Logger::instance()->info("Whitelist is used");
+        }
+    }
+
+    if (use_blacklist_ && !blacklist_path_.isEmpty())
+    {
+        if (!loadSubjectList(blacklist_path_, blacklisted_subjects_))
+        {
+            Logger::instance()->warning(QString("Failed to load blacklist: %1").arg(blacklist_path_));
+        }
+        else
+        {
+            Logger::instance()->info("blacklist is used");
+        }
+    }
+
     // 配置SSL
     ssl_config_.setLocalCertificate(cert);
     ssl_config_.setPrivateKey(key);
-    ssl_config_.setPeerVerifyMode(QSslSocket::VerifyNone);
+
+    if (requireClientCert)
+    {
+        Logger::instance()->warning("Client certificate is required");
+        // 使用更严格的验证模式，强制要求客户端提供证书
+        ssl_config_.setPeerVerifyMode(QSslSocket::VerifyPeer);
+        ssl_config_.setPeerVerifyDepth(1); // 设置验证深度
+        // // 确保SSL握手过程中请求客户端证书
+        // ssl_config_.setSslOption(QSsl::SslOptionDisableEmptyFragments, true);
+    }
     ssl_config_.setProtocol(QSsl::TlsV1_2OrLater);
+
+    // 设置CA证书
+    if (!ca_certificates_.isEmpty())
+    {
+        ssl_config_.setCaCertificates(ca_certificates_);
+    }
 
     return true;
 }
@@ -639,14 +698,12 @@ void TlsServer::onSslReady()
     QSslSocket *socket = qobject_cast<QSslSocket *>(sender());
     if (!socket)
     {
-        Logger::instance()->error("onSslReady: Invalid socket");
         return;
     }
 
     ClientSession *session = findSessionBySocket(socket);
     if (!session)
     {
-        Logger::instance()->error("onSslReady: Session not found");
         return;
     }
 
@@ -655,6 +712,17 @@ void TlsServer::onSslReady()
     quint16 clientPort = socket->peerPort();
     QString protocol = getSslProtocolName(socket);
     QSslCipher cipher = socket->sessionCipher();
+
+    // 验证客户端证书
+    if (config_manager_ && config_manager_->getRequireClientCert())
+    {
+        if (!validateClientSubject(socket))
+        {
+            Logger::instance()->warning(QString("Client certificate validation failed: %1:%2").arg(clientIp).arg(clientPort));
+            socket->disconnectFromHost();
+            return;
+        }
+    }
 
     Logger::instance()->info(
         QString("Client connected - SSL handshake completed: %1:%2, Protocol: %3, Cipher: %4")
@@ -784,6 +852,7 @@ void TlsServer::updateClientActivity(ClientSession *session)
                 .arg(session->socket->peerPort()));
     }
 }
+// 修改onSslErrors方法，智能区分不同类型的SSL错误
 void TlsServer::onSslErrors(const QList<QSslError> &errors)
 {
     QSslSocket *socket = qobject_cast<QSslSocket *>(sender());
@@ -792,16 +861,65 @@ void TlsServer::onSslErrors(const QList<QSslError> &errors)
         return;
     }
 
-    // 记录SSL错误
+    // 记录所有SSL错误
+    bool hasCriticalError = false;
+    bool hasCertificateError = false;
+
     for (const QSslError &error : errors)
     {
         Logger::instance()->warning(
-            QString("SSL Error: %1").arg(error.errorString()));
-    }
+            QString("SSL Error: %1(%2)").arg(error.error()).arg(error.errorString()));
 
-    // 对于自签名证书等可接受的错误，可以选择忽略
-    // 这里为了简化，忽略所有SSL错误（生产环境中需要更严格的处理）
-    socket->ignoreSslErrors();
+        // 检查是否是与证书相关的错误
+        if (error.error() == QSslError::SelfSignedCertificate ||
+            error.error() == QSslError::SelfSignedCertificateInChain ||
+            error.error() == QSslError::InvalidCaCertificate ||
+            error.error() == QSslError::CertificateUntrusted ||
+            error.error() == QSslError::CertificateRevoked ||
+            error.error() == QSslError::InvalidPurpose ||
+            error.error() == QSslError::CertificateExpired ||
+            error.error() == QSslError::CertificateNotYetValid ||
+            error.error() == QSslError::HostNameMismatch ||
+            error.error() == QSslError::NoPeerCertificate ||
+            error.error() == QSslError::UnableToGetLocalIssuerCertificate ||
+            error.error() == QSslError::UnableToVerifyFirstCertificate)
+        {
+
+            hasCertificateError = true;
+
+            // 标记关键证书错误
+            if (error.error() == QSslError::NoPeerCertificate ||
+                error.error() == QSslError::CertificateExpired ||
+                error.error() == QSslError::CertificateNotYetValid ||
+                error.error() == QSslError::CertificateUntrusted ||
+                error.error() == QSslError::CertificateRevoked)
+            {
+                hasCriticalError = true;
+            }
+        }
+    }
+    QString clientIp = socket->peerAddress().toString();
+    quint16 clientPort = socket->peerPort();
+
+    // 检查是否需要客户端证书
+    if (config_manager_ && config_manager_->getRequireClientCert())
+    {
+
+        // 对于需要客户端证书的情况，只在关键证书验证错误时断开连接
+        if (hasCriticalError || hasCertificateError)
+        {
+            Logger::instance()->warning(QString("Client certificate validation failed, closing connection:%1:%2").arg(clientIp).arg(clientPort));
+            socket->disconnectFromHost();
+            return;
+        }
+        if (!validateClientSubject(socket))
+        {
+            Logger::instance()->warning(QString("Client subject validation failed: %1:%2").arg(clientIp).arg(clientPort));
+            socket->disconnectFromHost();
+            return;
+        }
+    }
+    socket->ignoreSslErrors(); // 忽略错误，继续握手
 }
 
 // 添加findSessionBySocket方法实现
@@ -922,4 +1040,124 @@ void TlsServer::cleanupSession(ClientSession *session)
     }
 
     delete session;
+}
+
+bool TlsServer::loadCaCertificates()
+{
+    if (!config_manager_)
+        return false;
+
+    QString caCertPath = config_manager_->getCaCertificatePath();
+    QFile caFile(caCertPath);
+    if (!caFile.open(QIODevice::ReadOnly))
+    {
+        Logger::instance()->error(QString("Failed to open CA certificate file: %1").arg(caCertPath));
+        return false;
+    }
+
+    QSslCertificate caCert(&caFile, QSsl::Pem);
+    if (caCert.isNull())
+    {
+        Logger::instance()->error("Invalid CA certificate");
+        return false;
+    }
+
+    ca_certificates_.clear();
+    ca_certificates_.append(caCert);
+    return true;
+}
+
+bool TlsServer::loadSubjectList(const QString &filePath, QSet<QString> &subjectSet)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        Logger::instance()->error(QString("Failed to open file: %1").arg(filePath));
+        return false;
+    }
+
+    QTextStream in(&file);
+    subjectSet.clear();
+    int count = 0;
+
+    while (!in.atEnd())
+    {
+        QString line = in.readLine().trimmed();
+        if (!line.isEmpty() && !line.startsWith('#'))
+        {
+            subjectSet.insert(line);
+            count++;
+        }
+    }
+
+    Logger::instance()->info(QString("Loaded %1 subjects from %2").arg(count).arg(filePath));
+    return true;
+}
+
+QString TlsServer::getCertificateSubject(const QSslCertificate &certificate)
+{
+    // 获取证书主题信息
+    return certificate.subjectInfo(QSslCertificate::CommonName).join(", ");
+}
+
+bool TlsServer::validateClientSubject(QSslSocket *socket)
+{
+    if (!socket)
+        return false;
+
+    // 检查socket连接状态
+    if (!socket->isOpen() || !socket->isValid())
+    {
+        Logger::instance()->warning("Client certificate validation failed: socket is not valid");
+        return false;
+    }
+
+    // 获取客户端证书
+    QSslCertificate clientCert = socket->peerCertificate();
+
+    // 处理空证书情况
+    if (clientCert.isNull())
+    {
+        Logger::instance()->warning("No client certificate provided");
+        return false;
+    }
+
+    QString subject = getCertificateSubject(clientCert);
+
+    // 检查证书是否已过期 - 使用expiryDate替代isExpired
+    if (clientCert.isNull() || clientCert.expiryDate() < QDateTime::currentDateTime())
+    {
+        Logger::instance()->warning(QString("Invalid or expired client certificate: %1").arg(subject));
+        return false;
+    }
+
+    // 检查主题是否在允许列表中
+    return isSubjectAllowed(subject);
+}
+
+bool TlsServer::isSubjectAllowed(const QString &subject)
+{
+    if (use_whitelist_)
+    {
+        QMutexLocker locker(&whitelist_mutex_);
+        bool allowed = whitelisted_subjects_.contains(subject);
+        if (!allowed)
+        {
+            Logger::instance()->warning(QString("Subject not in whitelist: %1").arg(subject));
+        }
+        return allowed;
+    }
+    else if (use_blacklist_)
+    {
+        QMutexLocker locker(&blacklist_mutex_);
+        bool blocked = blacklisted_subjects_.contains(subject);
+        if (blocked)
+        {
+            Logger::instance()->warning(QString("Subject in blacklist: %1").arg(subject));
+        }
+        return !blocked;
+    }
+
+    // 如果没有启用白名单或黑名单，则允许所有主题
+    return true;
 }

@@ -145,6 +145,12 @@ private:
     // 获取SSL协议可读名称
     QString getSslProtocolName(QSslSocket *socket);
 
+    bool loadCaCertificates();
+    bool loadSubjectList(const QString &filePath, QSet<QString> &subjectSet);
+    bool isSubjectAllowed(const QString &subject);
+    bool validateClientSubject(QSslSocket *socket);
+    QString getCertificateSubject(const QSslCertificate &certificate);
+
 private:
     QSharedPointer<ConfigManager> config_manager_;
     QSharedPointer<UserDAO> user_dao_;
@@ -163,6 +169,16 @@ private:
     int auth_timeout_;       // 秒
 
     QSharedPointer<AuthManager> auth_manager_;
+
+    QList<QSslCertificate> ca_certificates_;
+    bool use_whitelist_;
+    bool use_blacklist_;
+    QString whitelist_path_;
+    QString blacklist_path_;
+    QSet<QString> whitelisted_subjects_;
+    QSet<QString> blacklisted_subjects_;
+    QMutex whitelist_mutex_;
+    QMutex blacklist_mutex_;
 };
 
 #endif // TLSSERVER_H

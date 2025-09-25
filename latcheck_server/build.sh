@@ -5,28 +5,34 @@
 
 set -e  # 遇到错误时退出
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# 检测是否输出到终端
+is_terminal() {
+    [[ -t 1 ]]
+}
 
-# 打印带颜色的消息
+# 去除ANSI颜色代码的函数
+strip_colors() {
+    sed 's/\x1b\[[0-9;]*m//g'
+}
+
+# 打印不带颜色的消息
 print_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo "[INFO] $1"
 }
 
 print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo "[SUCCESS] $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo "[WARNING] $1"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo "[ERROR] $1"
+}
+clean_output() {
+    tr -cd '[:print:][:space:]' | tr '\r' '\n'
 }
 
 # 检查是否为root用户
@@ -222,7 +228,7 @@ configure_cmake() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr/local \
             -DQt6_DIR="$qt6_dir" \
-            -DCMAKE_PREFIX_PATH="$qt6_dir"
+            -DCMAKE_PREFIX_PATH="$qt6_dir" 2>&1 | clean_output
     else
         print_error "未找到Qt6安装目录，请检查路径: $qt6_base_dir"
         print_info "请确保Qt6已正确安装到指定目录"
@@ -231,8 +237,10 @@ configure_cmake() {
     
     cd ..
     
+    
     print_success "CMake配置完成"
 }
+
 
 # 编译项目
 build_project() {
@@ -245,7 +253,8 @@ build_project() {
     print_info "使用 $cores 个核心进行并行编译"
     
     # 编译
-    make -j$cores
+    # make -j$cores
+    make -j$cores 2>&1 | clean_output
     
     cd ..
     
