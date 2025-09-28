@@ -963,6 +963,10 @@ void TlsServer::processMessage(ClientSession *session, const MessageHeader &head
         Logger::instance()->debug("Handling REPORT_REQUEST message");
         handleReportRequest(session, data);
         break;
+    case MessageType::CHANGE_PASSWORD_REQUEST:
+        Logger::instance()->debug("Handling CHANGE_PASSWORD_REQUEST message");
+        handleChangePasswordRequest(session, data);
+        break;
     default:
         Logger::instance()->warning(
             QString("Unknown message type: %1 from %2:%3")
@@ -972,6 +976,81 @@ void TlsServer::processMessage(ClientSession *session, const MessageHeader &head
         sendErrorResponse(session, MessageType::LOGIN_FAIL, ErrorCode::InvalidParameter);
         break;
     }
+}
+void TlsServer::handleChangePasswordRequest(ClientSession *session, const QByteArray &data)
+{
+    if (!session)
+    {
+        Logger::instance()->warning("Unauthenticated password change attempt");
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::PermissionDenied);
+        return;
+    }
+
+    if (!user_dao_)
+    {
+        Logger::instance()->error("UserDAO not set, cannot process password change request");
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::ServerInternal);
+        return;
+    }
+
+    // 反序列化密码修改请求数据
+    ChangePasswordRequestData requestData = MessageProtocol::deserializeChangePasswordRequest(data);
+
+    // 检查反序列化结果是否有效（检查userName第一个字符是否为空字符）
+    if (strlen(requestData.userName) == 0 || strlen(requestData.oldPassword) == 0 || strlen(requestData.newPassword) == 0 ||
+        strlen(requestData.userName) > 32 || strlen(requestData.oldPassword) > 32 || strlen(requestData.newPassword) > 32)
+    {
+        Logger::instance()->warning("Invalid parameters in password change request");
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::InvalidParameter);
+        return;
+    }
+
+    // 获取用户信息
+    User user = user_dao_->getUserByUsername(requestData.userName);
+    if (user.id == -1)
+    {
+        Logger::instance()->warning(QString("User not found: %1").arg(session->userName));
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::UserNotFound);
+        return;
+    }
+
+    // 验证旧密码
+    QString oldPassword = QString::fromUtf8(requestData.oldPassword).trimmed();
+    if (!PasswordUtils::verifyPassword(oldPassword, user.passwordHash, user.salt))
+    {
+        Logger::instance()->warning(QString("Incorrect old password for user: %1").arg(session->userName));
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::InvalidPassword);
+        return;
+    }
+
+    // 验证新密码强度
+    QString newPassword = QString::fromUtf8(requestData.newPassword).trimmed();
+    if (!PasswordUtils::validatePasswordStrength(newPassword))
+    {
+        Logger::instance()->warning(QString("New password does not meet strength requirements for user: %1").arg(session->userName));
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, ErrorCode::PasswordTooSimple);
+        return;
+    }
+
+    // 生成新的盐值和密码哈希
+    QString newSalt = PasswordUtils::generateSalt();
+    QString newPasswordHash = PasswordUtils::generatePasswordHash(newPassword, newSalt);
+
+    // 更新用户密码
+    ErrorCode result = user_dao_->updateUserPassword(user.id, newPasswordHash, newSalt);
+    if (result != ErrorCode::Success)
+    {
+        Logger::instance()->error(QString("Failed to update password for user: %1, error: %2").arg(session->userName).arg(static_cast<int>(result)));
+        sendErrorResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, result);
+        return;
+    }
+
+    // 密码更新成功
+    Logger::instance()->info(QString("Password changed successfully for user: %1").arg(session->userName));
+
+    // 构建并发送成功响应
+    QByteArray response = MessageProtocol::serializeChangePasswordResponse(static_cast<quint32>(ErrorCode::Success));
+    sendResponse(session, MessageType::CHANGE_PASSWORD_RESPONSE, response);
 }
 
 void TlsServer::handleListRequest(ClientSession *session)

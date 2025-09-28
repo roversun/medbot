@@ -124,6 +124,9 @@ private:
     // 报告请求处理
     void handleReportRequest(ClientSession *session, const QByteArray &data);
 
+    // 密码变更请求处理
+    void handleChangePasswordRequest(ClientSession *session, const QByteArray &data);
+
     // 发送响应
     void sendResponse(ClientSession *session, MessageType type, const QByteArray &data = QByteArray());
 

@@ -10,14 +10,16 @@
 // 消息类型定义
 enum class MessageType : quint32
 {
-    LOGIN_REQUEST = 0x0001,  // 登录请求
-    LOGIN_OK = 0x0002,       // 登录成功
-    LOGIN_FAIL = 0x0003,     // 登录失败
-    LIST_REQUEST = 0x0004,   // 服务器列表请求
-    LIST_RESPONSE = 0x0005,  // 服务器列表响应
-    REPORT_REQUEST = 0x0006, // 报告上传请求
-    REPORT_OK = 0x0007,      // 报告上传成功
-    REPORT_FAIL = 0x0008     // 报告上传失败
+    LOGIN_REQUEST = 0x0001,           // 登录请求
+    LOGIN_OK = 0x0002,                // 登录成功
+    LOGIN_FAIL = 0x0003,              // 登录失败
+    LIST_REQUEST = 0x0004,            // 服务器列表请求
+    LIST_RESPONSE = 0x0005,           // 服务器列表响应
+    REPORT_REQUEST = 0x0006,          // 报告上传请求
+    REPORT_OK = 0x0007,               // 报告上传成功
+    REPORT_FAIL = 0x0008,             // 报告上传失败
+    CHANGE_PASSWORD_REQUEST = 0x0009, // 修改密码请求
+    CHANGE_PASSWORD_RESPONSE = 0x000A // 修改密码响应
 };
 
 // 消息头结构（8字节）
@@ -84,6 +86,29 @@ struct ReportRequestData
     ReportRequestData() : recordCount(0) {}
 };
 
+// 修改密码请求数据
+struct ChangePasswordRequestData
+{
+    char userName[32];    // 用户名（32字节）
+    char oldPassword[32]; // 旧密码（32字节）
+    char newPassword[32]; // 新密码（32字节）
+
+    ChangePasswordRequestData()
+    {
+        memset(userName, 0, sizeof(userName));
+        memset(oldPassword, 0, sizeof(oldPassword));
+        memset(newPassword, 0, sizeof(newPassword));
+    }
+};
+
+// 修改密码响应数据
+struct ChangePasswordResponseData
+{
+    quint32 resultCode; // 结果状态码（0表示成功，其他值表示失败原因）
+
+    ChangePasswordResponseData() : resultCode(0) {}
+};
+
 // 消息协议处理类
 class MessageProtocol
 {
@@ -113,6 +138,18 @@ public:
 
     // 反序列化报告上传请求
     static ReportRequestData deserializeReportRequest(const QByteArray &data);
+
+    // 序列化修改密码请求
+    static QByteArray serializeChangePasswordRequest(const QString &userName, const QString &oldPasswordHash, const QString &newPasswordHash);
+
+    // 反序列化修改密码请求
+    static ChangePasswordRequestData deserializeChangePasswordRequest(const QByteArray &data);
+
+    // 序列化修改密码响应
+    static QByteArray serializeChangePasswordResponse(quint32 resultCode);
+
+    // 反序列化修改密码响应
+    static ChangePasswordResponseData deserializeChangePasswordResponse(const QByteArray &data);
 
     // 验证消息头
     static bool validateHeader(const MessageHeader &header);
