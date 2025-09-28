@@ -203,6 +203,69 @@ bool MessageProtocol::validateHeader(const MessageHeader &header)
     return true;
 }
 
+QByteArray MessageProtocol::serializeChangePasswordRequest(const QString &userName, const QString &oldPasswordHash, const QString &newPasswordHash)
+{
+    ChangePasswordRequestData requestData;
+
+    // 复制用户名
+    QByteArray userNameBytes = userName.toUtf8();
+    memcpy(requestData.userName, userNameBytes.constData(),
+           qMin(userNameBytes.size(), static_cast<int>(sizeof(requestData.userName) - 1)));
+
+    // 复制旧密码哈希
+    QByteArray oldPasswordBytes = oldPasswordHash.toUtf8();
+    memcpy(requestData.oldPassword, oldPasswordBytes.constData(),
+           qMin(oldPasswordBytes.size(), static_cast<int>(sizeof(requestData.oldPassword) - 1)));
+
+    // 复制新密码哈希
+    QByteArray newPasswordBytes = newPasswordHash.toUtf8();
+    memcpy(requestData.newPassword, newPasswordBytes.constData(),
+           qMin(newPasswordBytes.size(), static_cast<int>(sizeof(requestData.newPassword) - 1)));
+
+    // 序列化为字节数组
+    QByteArray data;
+    data.append(reinterpret_cast<const char *>(&requestData), sizeof(ChangePasswordRequestData));
+    return data;
+}
+
+ChangePasswordRequestData MessageProtocol::deserializeChangePasswordRequest(const QByteArray &data)
+{
+    ChangePasswordRequestData requestData;
+    if (data.size() >= sizeof(ChangePasswordRequestData))
+    {
+        memcpy(&requestData, data.constData(), sizeof(ChangePasswordRequestData));
+    }
+    return requestData;
+}
+
+QByteArray MessageProtocol::serializeChangePasswordResponse(quint32 resultCode)
+{
+    ChangePasswordResponseData responseData;
+    responseData.resultCode = resultCode;
+
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << responseData.resultCode;
+
+    return data;
+}
+
+ChangePasswordResponseData MessageProtocol::deserializeChangePasswordResponse(const QByteArray &data)
+{
+    ChangePasswordResponseData responseData;
+    if (data.size() < sizeof(quint32))
+    {
+        return responseData;
+    }
+
+    QDataStream stream(data);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream >> responseData.resultCode;
+
+    return responseData;
+}
+
 QString MessageProtocol::getMessageTypeString(MessageType type)
 {
     switch (type)
@@ -223,6 +286,10 @@ QString MessageProtocol::getMessageTypeString(MessageType type)
         return "REPORT_OK";
     case MessageType::REPORT_FAIL:
         return "REPORT_FAIL";
+    case MessageType::CHANGE_PASSWORD_REQUEST:
+        return "CHANGE_PASSWORD_REQUEST";
+    case MessageType::CHANGE_PASSWORD_RESPONSE:
+        return "CHANGE_PASSWORD_RESPONSE";
     default:
         return "UNKNOWN";
     }

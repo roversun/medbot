@@ -50,6 +50,9 @@ public:
     // Q_INVOKABLE bool login(const QString &username, const QString &passwordHash);
     Q_INVOKABLE QVariantList requestIpList();
 
+    // 添加修改密码方法
+    Q_INVOKABLE void changePassword(const QString &username, const QString &oldPassword, const QString &newPassword);
+
     // 新增方法
     Q_INVOKABLE bool sendLoginRequest(const QString &username, const QString &passwordHash);
     Q_INVOKABLE bool sendListRequest();
@@ -70,6 +73,7 @@ signals:
     void latencyCheckRunningChanged();
     void latencyCheckProgress(int current, int total);
     void latencyCheckFinished(const QVariantList &results);
+    void changePasswordResult(bool success, const QString &message);
 
 private slots:
     void onConnected();
@@ -111,6 +115,7 @@ private:
     void processIncomingMessage();                                          // 修改为无参数版本
     void handleMessage(MessageType msgType, const QByteArray &messageData); // 添加这个声明
     void processServerListResponse(const QByteArray &data);
+    bool sendChangePasswordRequest(const QString &username, const QString &oldPassword, const QString &newPassword);
 
     // 添加配置存储成员变量
     QString m_storedHost;
@@ -122,6 +127,11 @@ private:
 
     QString m_pendingUsername;
     QString m_pendingPassword;
+    // 在m_hasPendingLogin = false;后添加密码修改请求的待处理变量
+    QString m_pendingPasswordChangeUsername;
+    QString m_pendingOldPassword;
+    QString m_pendingNewPassword;
+    bool m_hasPendingPasswordChange = false;
     bool m_hasPendingLogin = false;
 };
 

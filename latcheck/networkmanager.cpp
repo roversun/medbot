@@ -211,6 +211,59 @@ bool NetworkManager::login(const QString &username, const QString &password)
     return sendLoginRequest(username, password);
 }
 
+// 修改现有的changePassword方法
+void NetworkManager::changePassword(const QString &username, const QString &oldPassword, const QString &newPassword)
+{
+    // 使用sendChangePasswordRequest方法发送请求
+    if (!sendChangePasswordRequest(username, oldPassword, newPassword))
+    {
+        emit changePasswordResult(false, QString("Failed to send password change request for user: ") + username);
+    }
+}
+
+// 修改现有的sendChangePasswordRequest函数
+bool NetworkManager::sendChangePasswordRequest(const QString &username, const QString &oldPassword, const QString &newPassword)
+{
+    if (!m_connected)
+    {
+        qDebug() << "Not connected, attempting auto-connect for password change...";
+        if (m_configManager)
+        {
+            QString serverIp = m_configManager->serverIp();
+            int serverPort = m_configManager->serverPort();
+
+            if (!serverIp.isEmpty() && serverPort > 0)
+            {
+                qDebug() << "Auto-connecting to server for password change:" << serverIp << ":" << serverPort;
+                emit errorOccurred(QString("Connecting to server for password change: %1:%2").arg(serverIp).arg(serverPort));
+
+                // 存储密码修改信息，等待连接完成后再发送
+                m_pendingPasswordChangeUsername = username;
+                m_pendingOldPassword = oldPassword;
+                m_pendingNewPassword = newPassword;
+                m_hasPendingPasswordChange = true;
+
+                connectToServer(serverIp, serverPort, false);
+                return true; // 返回true表示密码修改流程已启动
+            }
+        }
+        emit errorOccurred("Failed to connect to server for password change");
+        return false;
+    }
+
+    // 创建并发送密码修改请求
+    QByteArray passwordData = MessageProtocol::serializeChangePasswordRequest(username, oldPassword, newPassword);
+
+    MessageHeader header(MessageType::CHANGE_PASSWORD_REQUEST, static_cast<quint32>(passwordData.size()));
+    QByteArray headerData = MessageProtocol::serializeHeader(header);
+
+    m_socket->write(headerData + passwordData);
+    m_socket->flush();
+
+    emit errorOccurred("Password change request sent, waiting for response...");
+    return true;
+}
+
 QVariantList NetworkManager::requestIpList()
 {
     if (!m_connected)
@@ -305,36 +358,37 @@ QString NetworkManager::getCipherSuiteInfo()
         .arg(cipher.encryptionMethod());
 }
 
+// 修改onConnected函数，添加密码修改请求处理
 void NetworkManager::onConnected()
 {
     setConnected(true);
 
-    QString successMsg = QString("Successfully connected to %1:%2, send pending login request")
-                             .arg(m_currentHost)
-                             .arg(m_currentPort);
-
+    QString successMsg = QString("Successfully connected to %1:%2").arg(m_currentHost).arg(m_currentPort);
     setConnectionStatus(successMsg);
     emit errorOccurred(successMsg);
-
-    // 添加调试信息，显示pending login状态
-    // emit errorOccurred(QString("Pending login status: %1, Username: %2")
-    //                        .arg(m_hasPendingLogin ? "true" : "false")
-    //                        .arg(m_pendingUsername.isEmpty() ? "empty" : m_pendingUsername));
 
     // 如果有待发送的登录请求，现在发送
     if (m_hasPendingLogin)
     {
-        // qDebug() << "Sending pending login request";
-        // emit errorOccurred("Sending pending login request"); // 添加到日志中
+        emit errorOccurred("Sending pending login request");
         sendLoginRequest(m_pendingUsername, m_pendingPassword);
         m_hasPendingLogin = false;
         m_pendingUsername.clear();
         m_pendingPassword.clear();
     }
+    // 如果有待发送的密码修改请求，现在发送
+    else if (m_hasPendingPasswordChange)
+    {
+        emit errorOccurred("Sending pending password change request");
+        sendChangePasswordRequest(m_pendingPasswordChangeUsername, m_pendingOldPassword, m_pendingNewPassword);
+        m_hasPendingPasswordChange = false;
+        m_pendingPasswordChangeUsername.clear();
+        m_pendingOldPassword.clear();
+        m_pendingNewPassword.clear();
+    }
     else
     {
-        // 添加额外的日志，说明为什么没有发送登录请求
-        emit errorOccurred("No pending login request to send");
+        emit errorOccurred("No pending requests to send");
     }
 }
 
@@ -568,6 +622,21 @@ void NetworkManager::handleMessage(MessageType msgType, const QByteArray &messag
         // emit errorOccurred("❌ Latency report upload failed");
         emit reportUploadResult(false, "", "Upload failed");
         break;
+    case MessageType::CHANGE_PASSWORD_RESPONSE:
+    {
+        ChangePasswordResponseData response = MessageProtocol::deserializeChangePasswordResponse(messageData);
+        if (response.resultCode == 0)
+        {
+            // emit errorOccurred("✅ Password changed successfully");
+            emit changePasswordResult(true, "Password changed successfully");
+        }
+        else
+        {
+            // emit errorOccurred("❌ Password change failed");
+            emit changePasswordResult(false, QString("error code:%1").arg(response.resultCode));
+        }
+        break;
+    }
     default:
         emit errorOccurred(QString("Unknown message type: 0x%1").arg(static_cast<quint32>(msgType), 4, 16, QChar('0')));
         break;
