@@ -38,10 +38,13 @@ void LatencyWorker::startChecking()
         quint32 serverId = server.first;
         quint32 ipAddr = server.second;
 
-        // 实现重试机制：最多尝试3次，取最低延时值
-        int bestLatency = -1;
+        // 实现重试机制：最多尝试5次，如果有3次成功则提前中断，取最低延时值
+        int bestLatency = MAX_LATENCY;
         int attempts = 0;
-        const int maxAttempts = 3;
+        int successCount = 0;
+        const int maxAttempts = 5;
+        const int targetSuccessCount = 3;
+        QList<int> successfulLatencies;
 
         for (attempts = 0; attempts < maxAttempts; ++attempts)
         {
@@ -52,15 +55,23 @@ void LatencyWorker::startChecking()
 
             int latency = pingHost(ipAddr);
 
-            if (latency >= 0)
+            if (latency >= 0 && latency < MAX_LATENCY)
             {
-                // 成功获取延时，更新最佳结果
-                if (bestLatency < 0 || latency < bestLatency)
+                // 成功获取延时
+                successCount++;
+                successfulLatencies.append(latency);
+
+                // 更新最佳结果
+                if (latency < bestLatency)
                 {
                     bestLatency = latency;
                 }
-                // 如果第一次就成功，不需要继续重试
-                break;
+
+                // 如果已经有3次成功，提前中断
+                if (successCount >= targetSuccessCount)
+                {
+                    break;
+                }
             }
 
             // 如果不是最后一次尝试，稍微等待后重试
@@ -73,9 +84,9 @@ void LatencyWorker::startChecking()
         emit resultReady(serverId, ipAddr, bestLatency);
 
         // 只输出失败的结果（所有重试都失败）
-        if (bestLatency < 0)
+        if (bestLatency >= MAX_LATENCY)
         {
-            emit logMessage("Failed to ping Server ID " + QString::number(serverId) + ": " + QHostAddress(ipAddr).toString() + " (tried " + QString::number(attempts) + " times)");
+            emit logMessage("Failed to ping Server ID " + QString::number(serverId) + ": " + QHostAddress(ipAddr).toString() + " (tried " + QString::number(attempts + 1) + " times)");
         }
     }
 
@@ -111,8 +122,8 @@ int LatencyWorker::pingHost(quint32 ipAddr)
                                 sizeof(replyBuffer),
                                 5000);
 
-    int latency = -1;
-    if (result != 0)
+    int latency = MAX_LATENCY;
+    if (result > 0)
     {
         PICMP_ECHO_REPLY pEchoReply = (PICMP_ECHO_REPLY)replyBuffer;
         if (pEchoReply->Status == IP_SUCCESS)
@@ -122,15 +133,15 @@ int LatencyWorker::pingHost(quint32 ipAddr)
         }
         else
         {
-            latency = -1; // 明确设置为-1
+            latency = MAX_LATENCY; // 明确设置为10000
             emit logMessage("Received ICMP echo reply with error status from " + QHostAddress(ipAddr).toString() + ", status: " + QString::number(pEchoReply->Status));
         }
     }
     else
     {
-        latency = -1; // 明确设置为-1
+        latency = MAX_LATENCY; // 明确设置为10000
         DWORD error = GetLastError();
-        emit logMessage("No ICMP echo reply received from " + QHostAddress(ipAddr).toString() + ", error: " + QString::number(error));
+        // emit logMessage("No ICMP echo reply received from " + QHostAddress(ipAddr).toString() + ", error: " + QString::number(error));
     }
 
     IcmpCloseHandle(hIcmpFile);
@@ -310,7 +321,7 @@ void LatencyChecker::onWorkerResult(quint32 serverId, quint32 ipAddr, int latenc
     m_results.append(result);
 
     // 记录成功和失败的详细结果
-    if (latency >= 0)
+    if (latency >= 0 && latency < MAX_LATENCY)
     {
         m_successResults.append(qMakePair(serverId, latency));
     }
@@ -324,7 +335,7 @@ void LatencyChecker::onWorkerResult(quint32 serverId, quint32 ipAddr, int latenc
     setProgress(m_results.size());
 
     // 每处理100个结果输出一次进度信息
-    if (m_results.size() % 100 == 0)
+    if (m_results.size() % 100 == 0 || m_results.size() == m_totalIps)
     {
         emit logMessage("Progress: " + QString::number(m_results.size()) + "/" + QString::number(m_totalIps) +
                         " processed, " + QString::number(m_successResults.size()) + " successful");

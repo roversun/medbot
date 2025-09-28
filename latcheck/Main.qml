@@ -375,27 +375,7 @@ ApplicationWindow {
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Item { Layout.fillWidth: true }
-
-                    Label {
-                        text: isRunning ?
-                            `Progress: ${latencyChecker.progress}/${latencyChecker.totalIps}` :
-                            ""
-                    }
-                }
-
-                // Progress Bar
-                ProgressBar {
-                    Layout.fillWidth: true
-                    visible: isRunning
-                    value: latencyChecker.totalIps > 0 ?
-                        latencyChecker.progress / latencyChecker.totalIps : 0
-                }
-
-                // Log Display
+                 // Log Display
                 GroupBox {
                     title: "Log Output"
                     Layout.fillWidth: true
@@ -635,43 +615,6 @@ ApplicationWindow {
         }
     }
 
-    // Virtual Keyboard
-    // InputPanel {
-    //     id: inputPanel
-    //     z: 99
-    //     x: 0
-    //     y: window.height
-    //     width: window.width
-
-    //     // 使用缩放变换
-    //     // transform: Scale {
-    //     //     xScale: 1.0
-    //     //     yScale: 0.6  // 缩放到60%高度
-    //     //     origin.x: inputPanel.width / 2
-    //     //     origin.y: inputPanel.height+2
-    //     // }
-    //     states: State {
-    //         name: "visible"
-    //         when: inputPanel.active
-    //         PropertyChanges {
-    //             target: inputPanel
-    //             y: window.height - inputPanel.height
-    //         }
-    //     }
-    //     transitions: Transition {
-    //         from: ""
-    //         to: "visible"
-    //         reversible: true
-    //         ParallelAnimation {
-    //             NumberAnimation {
-    //                 properties: "y"
-    //                 duration: 300
-    //                 easing.type: Easing.InOutQuad
-    //             }
-    //         }
-    //     }
-    // }
-
     property bool isLoggingIn: false  // Add this to the main ApplicationWindow
     // 添加：存储接收到的IP列表
     property variant receivedIpList: []
@@ -683,13 +626,21 @@ ApplicationWindow {
             if (!networkManager.connected) {
                 isLoggedIn = false
                 isLoggingIn = false  // 合并：添加isLoggingIn重置
-                receivedIpList = []  // 网络断开时清空IP列表
-                // 添加：网络断开时重置运行状态
-                if (isRunning) {
-                    latencyChecker.stopChecking()
-                    isRunning = false
-                    // logger.logMessage("✗ Network disconnected, stopping latency check")
+                // 修改网络断开事件处理函数，添加清空密码框的逻辑
+                function onDisconnected() {
+                    isLoggedIn = false
+                    receivedIpList = []  // 网络断开时清空IP列表
+                    // 添加：网络断开时重置运行状态
+                    if (isRunning) {
+                        latencyChecker.stopChecking()
+                        isRunning = false
+                    }
+                    // 添加：网络断开时清空密码框
+                    if (typeof mainPasswordField !== 'undefined') {
+                        mainPasswordField.text = ""
+                    }
                 }
+                //logger.logMessage("✗ Network disconnected, stopping latency check")
             }
         }
 

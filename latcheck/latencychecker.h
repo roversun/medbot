@@ -12,6 +12,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#define MAX_LATENCY 10000
+
 class LatencyWorker : public QObject
 {
     Q_OBJECT
@@ -68,14 +70,14 @@ private:
     int m_progress;
     int m_totalIps;
     int m_finishedWorkers;
-    QList<QThread*> m_threads;
-    QList<LatencyWorker*> m_workers;
+    QList<QThread *> m_threads;
+    QList<LatencyWorker *> m_workers;
     QVariantList m_results;
     QMutex m_resultsMutex;
-    
+
     // 添加成功和失败结果的详细记录
-    QList<QPair<quint32, int>> m_successResults;  // serverId, latency
-    QList<quint32> m_failedResults;  // serverId
+    QList<QPair<quint32, int>> m_successResults; // serverId, latency
+    QList<quint32> m_failedResults;              // serverId
 
 signals:
     void runningChanged();

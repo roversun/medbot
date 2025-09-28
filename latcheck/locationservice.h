@@ -2,10 +2,6 @@
 #define LOCATIONSERVICE_H
 
 #include <QObject>
-#include <QGeoPositionInfoSource>
-#include <QGeoPositionInfo>
-#include <QGeoAddress>
-#include <QGeoCoordinate>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QTimer>
@@ -40,13 +36,8 @@ signals:
 
 private slots:
     void onIpLocationFinished();
-    // 移除GPS相关的槽函数
-    // void onPositionUpdated(const QGeoPositionInfo &info);
-    // void onPositionError(QGeoPositionInfoSource::Error error);
-    void onReverseGeocodeFinished();
 
 private:
-    QGeoPositionInfoSource *m_positionSource;
     QNetworkAccessManager *m_networkManager;
     bool m_locationEnabled;
     QString m_currentLocation;
@@ -57,7 +48,6 @@ private:
     void setLocationEnabled(bool enabled);
     void setCurrentLocation(const QString &location);
     void setIsUpdating(bool updating);
-    void reverseGeocode(const QGeoCoordinate &coordinate);
 };
 
 #endif // LOCATIONSERVICE_H
